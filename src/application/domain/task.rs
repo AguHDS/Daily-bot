@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: u64,
     pub user_id: u64,

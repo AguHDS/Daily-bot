@@ -1,25 +1,27 @@
-use serenity::builder::CreateCommand;
-use serenity::model::application::CommandInteraction;
-use serenity::prelude::Context;
-use serenity::builder::CreateInteractionResponse;
+use serenity::all::{
+    CommandInteraction, CreateCommand, CreateInteractionResponse, CreateInteractionResponseMessage,
+};
+use serenity::prelude::*;
 
-// Register /help command
+// registers /help command
 pub fn register_help_command() -> CreateCommand {
     CreateCommand::new("help").description("Show available commands")
 }
 
-// Executes /help command
+// /help command logic
 pub async fn run_help_command(ctx: &Context, command: &CommandInteraction) {
-    if let Err(err) = command.create_response(&ctx.http, CreateInteractionResponse::Message(
-        serenity::builder::CreateInteractionResponseMessage::default()
-            .content(
-                "Available commands:\n\
-                /help - Show this message\n\
-                /ping - Connection testing\n\
-                /reminder - Create a reminder"
-            )
-    )).await
-    {
-        eprintln!("Error when answering /help: {:?}", err);
+    let content = "\
+Comandos disponibles:\n\
+/help - Show this message\n\
+/add_task - Create new task\n\
+/list_tasks - Task list\n\
+/remove_task - Delete a task by ID";
+
+    let builder = CreateInteractionResponse::Message(
+        CreateInteractionResponseMessage::default().content(content),
+    );
+
+    if let Err(err) = command.create_response(&ctx.http, builder).await {
+        eprintln!("Error when /help: {:?}", err);
     }
 }

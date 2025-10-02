@@ -6,7 +6,7 @@ pub struct Task {
     pub id: u64,
     pub user_id: u64,
     pub message: String,
-    pub scheduled_time: DateTime<Utc>,
+    pub scheduled_time: Option<DateTime<Utc>>, 
     pub completed: bool,
     pub repeat_daily: bool,
 }
@@ -16,7 +16,7 @@ impl Task {
         id: u64,
         user_id: u64,
         message: String,
-        scheduled_time: DateTime<Utc>,
+        scheduled_time: Option<DateTime<Utc>>,
         repeat_daily: bool,
     ) -> Self {
         Self {

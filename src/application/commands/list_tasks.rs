@@ -25,7 +25,8 @@ pub async fn run_list_tasks(
             "{} - {} - {} - {}\n",
             task.id,
             task.message,
-            task.scheduled_time,
+            task.scheduled_time
+                .map_or("Not scheduled".to_string(), |dt| dt.to_string()),
             if task.completed { "✅" } else { "❌" }
         ));
     }

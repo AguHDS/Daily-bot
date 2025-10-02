@@ -1,12 +1,12 @@
-use std::sync::Arc;
-use tokio::time::{sleep, Duration};
-use chrono::Utc;
-use serenity::prelude::Context;
 use crate::application::repositories::task_repository::TaskRepository;
+use chrono::Utc;
+use serenity::model::id::UserId;
+use serenity::prelude::Context;
+use std::sync::Arc;
+use tokio::time::{Duration, sleep};
 
-/// Scheduler loop que revisa tareas periódicamente y dispara recordatorios cuando corresponda
+/// Scheduler loop for review tasks periodically and triggers reminders when appropriate
 pub fn start_scheduler(ctx: Arc<Context>, repo: Arc<TaskRepository>) {
-    // Se lanza en segundo plano
     tokio::spawn(async move {
         println!("[SCHEDULER] Scheduler started");
 
@@ -15,19 +15,26 @@ pub fn start_scheduler(ctx: Arc<Context>, repo: Arc<TaskRepository>) {
             let tasks = repo.list_tasks();
 
             for task in tasks {
-                if task.scheduled_time <= now && !task.completed {
-                    // Por ahora solo imprimimos el recordatorio
+                if task.scheduled_time <= Some(now) && !task.completed {
+                    // convert u64 to userID
+                    let user_id = UserId::from(task.user_id);
+
+                    // obtain username from user ID
+                    let user_name = match ctx.http.get_user(user_id).await {
+                        Ok(user) => format!("{} ({})", user.name, user.id),
+                        Err(_) => format!("Unknown ({})", task.user_id),
+                    };
+
                     println!(
                         "[SCHEDULER] Reminder for user {}: {}",
-                        task.user_id, task.message
+                        user_name, task.message
                     );
 
-                    // Marcamos la tarea como completada para que no se dispare de nuevo inmediatamente
+                    // mark task as completed to avoid repeated reminders
                     repo.complete_task(task.id);
                 }
             }
 
-            // Espera 60 segundos antes de la siguiente revisión (puede ajustarse)
             sleep(Duration::from_secs(60)).await;
         }
     });

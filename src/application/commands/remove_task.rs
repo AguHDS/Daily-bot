@@ -21,7 +21,7 @@ pub async fn run_remove_task(
     command: &CommandInteraction,
     task_repo: &TaskRepository,
 ) {
-    // extract id from task
+    // Extract task ID
     let task_id = match command.data.options.get(0) {
         Some(opt) => match &opt.value {
             CommandDataOptionValue::Integer(i) => *i as u64,
@@ -31,15 +31,16 @@ pub async fn run_remove_task(
     };
 
     if task_repo.remove_task(task_id) {
-        let _ = task_repo.save_all();
+        // remove_task already saves to JSON
         let builder = CreateInteractionResponse::Message(
             CreateInteractionResponseMessage::default()
-                .content(format!("Task {} removed", task_id)),
+                .content(format!("✅ Task {} removed", task_id)),
         );
         let _ = command.create_response(&ctx.http, builder).await;
     } else {
         let builder = CreateInteractionResponse::Message(
-            CreateInteractionResponseMessage::default().content("Couldn't find task with required ID"),
+            CreateInteractionResponseMessage::default()
+                .content("❌ Couldn't find task with the specified ID"),
         );
         let _ = command.create_response(&ctx.http, builder).await;
     }

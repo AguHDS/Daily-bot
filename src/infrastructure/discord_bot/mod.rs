@@ -5,11 +5,7 @@ use crate::application::commands::{
 use crate::application::repositories::task_repository::TaskRepository;
 use crate::application::scheduler::scheduler_tokio::start_scheduler;
 
-use serenity::model::{
-    application::Interaction,
-    gateway::Ready,
-    id::GuildId,
-};
+use serenity::model::{application::Interaction, gateway::Ready, id::GuildId};
 use serenity::prelude::*;
 use std::sync::Arc;
 
@@ -29,22 +25,15 @@ impl EventHandler for CommandHandler {
             let guild_id: GuildId = guild_status.id;
             println!("Registering commands for guild: {}", guild_id.get());
 
-            // Add Task
             let _ = guild_id
                 .create_command(&ctx.http, register_add_task_command())
                 .await;
-
-            // List Tasks
             let _ = guild_id
                 .create_command(&ctx.http, register_list_tasks_command())
                 .await;
-
-            // Remove Task
             let _ = guild_id
                 .create_command(&ctx.http, register_remove_task_command())
                 .await;
-
-            // Help
             let _ = guild_id
                 .create_command(&ctx.http, register_help_command())
                 .await;
@@ -52,19 +41,43 @@ impl EventHandler for CommandHandler {
             println!("Commands registered for guild {}", guild_id.get());
         }
 
-        // Start scheduler in the background
         start_scheduler(Arc::new(ctx), self.task_repo.clone());
         println!("Scheduler started");
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        if let Interaction::Command(command) = interaction {
+        // 1️⃣ Manejar comandos
+        if let Some(command) = interaction.clone().command() {
             match command.data.name.as_str() {
                 "add_task" => run_add_task(&ctx, &command, &self.task_repo).await,
                 "list_tasks" => run_list_tasks(&ctx, &command, &self.task_repo).await,
                 "remove_task" => run_remove_task(&ctx, &command, &self.task_repo).await,
                 "help" => run_help_command(&ctx, &command).await,
                 _ => println!("Command not recognized: {}", command.data.name),
+            }
+        }
+
+        // 2️⃣ Manejar componentes (inputs, botones, select menus)
+        if let Some(component) = interaction.clone().message_component() {
+            println!("Received a message component interaction: {:?}", component);
+        }
+
+        // 3️⃣ Manejar modal submit (input de fecha/hora)
+        if let Some(modal) = interaction.clone().modal_submit() {
+            if modal.data.custom_id.starts_with("single_task_modal|") {
+                let parts: Vec<&str> = modal.data.custom_id.splitn(2, '|').collect();
+                let message = parts.get(1).unwrap_or(&"").to_string();
+
+                if let Err(err) = crate::application::commands::add_task::process_single_task_input(
+                    &ctx,
+                    &modal,
+                    &self.task_repo,
+                    message,
+                )
+                .await
+                {
+                    eprintln!("❌ Failed to process single task input: {}", err);
+                }
             }
         }
     }
@@ -78,7 +91,6 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         | GatewayIntents::GUILD_MEMBERS
         | GatewayIntents::GUILD_MESSAGE_REACTIONS;
 
-    // Task repository shared across handlers and scheduler
     let task_repo = Arc::new(TaskRepository::new());
     let handler = CommandHandler {
         task_repo: task_repo.clone(),

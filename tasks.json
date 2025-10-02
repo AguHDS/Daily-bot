@@ -1,18 +1,1 @@
-[
-  {
-    "id": 1,
-    "user_id": 123,
-    "message": "Comprar leche",
-    "scheduled_time": "2025-09-30T21:31:10.063085500Z",
-    "completed": false,
-    "repeat_daily": false
-  },
-  {
-    "id": 2,
-    "user_id": 123,
-    "message": "Hacer ejercicio",
-    "scheduled_time": "2025-09-30T22:21:10.063194Z",
-    "completed": false,
-    "repeat_daily": true
-  }
-]
+[]

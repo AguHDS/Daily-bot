@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// In-memory repository for tasks with JSON persistence
+// In-memory repository for tasks with JSON persistence
 #[derive(Clone, Default)]
 pub struct TaskRepository {
     tasks: Arc<Mutex<HashMap<u64, Task>>>, // id -> Task
@@ -50,7 +50,7 @@ impl TaskRepository {
         repo
     }
 
-    /// Add a task and save to JSON
+    // Add a task and save to JSON
     pub fn add_task(
         &self,
         user_id: u64,
@@ -76,13 +76,13 @@ impl TaskRepository {
         id
     }
 
-    /// List all tasks
+    // List all tasks
     pub fn list_tasks(&self) -> Vec<Task> {
         let tasks = self.tasks.lock().unwrap();
         tasks.values().cloned().collect()
     }
 
-    /// Complete a task and save to JSON
+    // Complete a task and save to JSON
     pub fn complete_task(&self, id: u64) -> bool {
         let updated = {
             let mut tasks = self.tasks.lock().unwrap();
@@ -101,7 +101,7 @@ impl TaskRepository {
         updated
     }
 
-    /// Remove a task and save to JSON
+    // Remove a task and save to JSON
     pub fn remove_task(&self, id: u64) -> bool {
         let removed = {
             let mut tasks = self.tasks.lock().unwrap();
@@ -113,5 +113,13 @@ impl TaskRepository {
         }
 
         removed
+    }
+
+    // Remove all tasks for a specific user and save to JSON
+    pub fn remove_all_by_user(&self, user_id: u64) -> usize {
+        let mut tasks = self.tasks.lock().unwrap();
+        let before = tasks.len();
+        tasks.retain(|_, task| task.user_id != user_id);
+        before - tasks.len()
     }
 }

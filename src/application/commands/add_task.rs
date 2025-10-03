@@ -1,6 +1,6 @@
 use crate::application::domain::Recurrence;
 use crate::application::repositories::task_repository::TaskRepository;
-use chrono::{DateTime, Datelike, NaiveDateTime, Timelike, Utc, Weekday};
+use chrono::{TimeZone, Datelike, NaiveDateTime, Timelike, Utc};
 use serenity::{
     all::{
         ActionRowComponent, CommandDataOptionValue, CommandInteraction, CommandOptionType,
@@ -33,7 +33,7 @@ pub fn register_add_task_command() -> CreateCommand {
 }
 
 // Execute /add_task command logic
-pub async fn run_add_task(ctx: &Context, command: &CommandInteraction, repo: &TaskRepository) {
+pub async fn run_add_task(ctx: &Context, command: &CommandInteraction, _repo: &TaskRepository) {
     let options = &command.data.options;
 
     // extract message
@@ -156,7 +156,7 @@ pub async fn process_single_task_input(
     let naive_dt = NaiveDateTime::parse_from_str(&date_time_str, "%Y-%m-%d %H:%M")
         .map_err(|_| "Failed to parse date/time. Use YYYY-MM-DD HH:MM")?;
 
-    let dt_utc: DateTime<Utc> = DateTime::<Utc>::from_utc(naive_dt, Utc);
+    let dt_utc = Utc.from_utc_datetime(&naive_dt);
 
     let task_id = repo.add_task(modal.user.id.get(), message, Some(dt_utc), None);
 
@@ -181,6 +181,9 @@ pub async fn process_weekly_task_input(
     repo: &Arc<TaskRepository>,
     message: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::application::commands::utils::weekly_parser::parse_weekly_input;
+
+    // extract input from modal
     let input_str: String = match modal.data.components.get(0) {
         Some(row) => match row.components.get(0) {
             Some(ActionRowComponent::InputText(input)) => match &input.value {
@@ -192,44 +195,13 @@ pub async fn process_weekly_task_input(
         None => return Err("No input value found".into()),
     };
 
-    let parts: Vec<&str> = input_str.split_whitespace().collect();
-    if parts.len() != 2 {
-        eprintln!("Invalid input format: {:?}", parts);
-        return Err("Invalid format. Use: Mon,Wed,Fri HH:MM".into());
-    }
+    // flexible parser
+    let (days, hour, minute, formatted_str) = parse_weekly_input(&input_str)?;
+    println!("Parsed weekly input: {}", formatted_str);
 
-    let days_str = parts[0];
-    let time_str = parts[1];
-
-    let mut days: Vec<Weekday> = Vec::new();
-    for day in days_str.split(',') {
-        match day.to_lowercase().as_str() {
-            "mon" => days.push(Weekday::Mon),
-            "tue" => days.push(Weekday::Tue),
-            "wed" => days.push(Weekday::Wed),
-            "thu" => days.push(Weekday::Thu),
-            "fri" => days.push(Weekday::Fri),
-            "sat" => days.push(Weekday::Sat),
-            "sun" => days.push(Weekday::Sun),
-            _ => {
-                eprintln!("Invalid weekday in input: {}", day);
-                return Err(format!("Invalid weekday: {}", day).into());
-            }
-        }
-    }
-
-    let time_parts: Vec<&str> = time_str.split(':').collect();
-    if time_parts.len() != 2 {
-        eprintln!("Invalid time format: {:?}", time_parts);
-        return Err("Invalid time format. Use HH:MM".into());
-    }
-
-    let hour: u8 = time_parts[0].parse()?;
-    let minute: u8 = time_parts[1].parse()?;
-
+    // calculate first concurrence from now
     let now = Utc::now();
     let mut first_time = now;
-
     while !days.contains(&first_time.weekday()) {
         first_time = first_time + chrono::Duration::days(1);
     }
@@ -239,8 +211,10 @@ pub async fn process_weekly_task_input(
         .and_then(|t| t.with_minute(minute as u32))
         .unwrap_or(first_time);
 
+    // create recurrence
     let recurrence = Some(Recurrence::Weekly { days, hour, minute });
 
+    // add task to repo
     let task_id = repo.add_task(
         modal.user.id.get(),
         message,
@@ -255,11 +229,8 @@ pub async fn process_weekly_task_input(
     println!("Weekly task created with ID {}", task_id);
 
     let response_content = format!(
-        "✅ Weekly task **#{}** created on {:?} at {:02}:{:02}",
-        task_id,
-        recurrence.as_ref().unwrap(),
-        hour,
-        minute
+        "✅ Weekly task **#{}** created for {}",
+        task_id, formatted_str
     );
 
     let builder = CreateInteractionResponseMessage::default().content(response_content);

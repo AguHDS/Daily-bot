@@ -1,2 +1,2 @@
 pub mod task;
-pub use task::{Task, Recurrence};
+pub use task::{Recurrence};

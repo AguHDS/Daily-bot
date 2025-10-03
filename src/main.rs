@@ -1,7 +1,7 @@
 use dotenvy::dotenv;
 mod application;
 mod infrastructure;
-use crate::infrastructure::discord_bot::run_bot;
+use crate::infrastructure::discord_bot::bot::run_bot;
 use crate::application::repositories::task_repository::TaskRepository;
 
 #[tokio::main]

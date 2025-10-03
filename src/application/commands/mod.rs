@@ -2,6 +2,7 @@ pub mod help;
 pub mod add_task;
 pub mod list_tasks;
 pub mod remove_task;
+pub mod utils;
 
 pub use help::register_help_command;
 pub use help::run_help_command;

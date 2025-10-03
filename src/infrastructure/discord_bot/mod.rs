@@ -18,12 +18,9 @@ impl EventHandler for CommandHandler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         println!("Bot ready as {}", ready.user.name);
 
-        use serenity::builder::CreateCommand;
-
-        // Register commands for each guild
+        // register commands for each guild
         for guild_status in ready.guilds {
             let guild_id: GuildId = guild_status.id;
-            println!("Registering commands for guild: {}", guild_id.get());
 
             let _ = guild_id
                 .create_command(&ctx.http, register_add_task_command())
@@ -46,8 +43,9 @@ impl EventHandler for CommandHandler {
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        // 1️⃣ Manejar comandos
+        // handle different interaction types
         if let Some(command) = interaction.clone().command() {
+            println!("Received command interaction: {}", command.data.name);
             match command.data.name.as_str() {
                 "add_task" => run_add_task(&ctx, &command, &self.task_repo).await,
                 "list_tasks" => run_list_tasks(&ctx, &command, &self.task_repo).await,
@@ -57,15 +55,16 @@ impl EventHandler for CommandHandler {
             }
         }
 
-        // 2️⃣ Manejar componentes (inputs, botones, select menus)
+        // handle message components (buttons, selects, etc)
         if let Some(component) = interaction.clone().message_component() {
             println!("Received a message component interaction: {:?}", component);
         }
 
-        // 3️⃣ Manejar modal submit (input de fecha/hora)
+        // handle modal submit
         if let Some(modal) = interaction.clone().modal_submit() {
-            if modal.data.custom_id.starts_with("single_task_modal|") {
-                let parts: Vec<&str> = modal.data.custom_id.splitn(2, '|').collect();
+            let custom_id = &modal.data.custom_id;
+            if custom_id.starts_with("single_task_modal|") {
+                let parts: Vec<&str> = custom_id.splitn(2, '|').collect();
                 let message = parts.get(1).unwrap_or(&"").to_string();
 
                 if let Err(err) = crate::application::commands::add_task::process_single_task_input(
@@ -76,7 +75,21 @@ impl EventHandler for CommandHandler {
                 )
                 .await
                 {
-                    eprintln!("❌ Failed to process single task input: {}", err);
+                    eprintln!("Failed to process single task input: {}", err);
+                }
+            } else if custom_id.starts_with("weekly_task_modal|") {
+                let parts: Vec<&str> = custom_id.splitn(2, '|').collect();
+                let message = parts.get(1).unwrap_or(&"").to_string();
+
+                if let Err(err) = crate::application::commands::add_task::process_weekly_task_input(
+                    &ctx,
+                    &modal,
+                    &self.task_repo,
+                    message,
+                )
+                .await
+                {
+                    eprintln!("Failed to process weekly task input: {}", err);
                 }
             }
         }
@@ -100,7 +113,6 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         .event_handler(handler)
         .await?;
 
-    println!("Starting client...");
     client.start().await?;
     Ok(())
 }

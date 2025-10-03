@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, Weekday};
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6,9 +6,16 @@ pub struct Task {
     pub id: u64,
     pub user_id: u64,
     pub message: String,
-    pub scheduled_time: Option<DateTime<Utc>>, 
+    pub scheduled_time: Option<DateTime<Utc>>, // initial scheduled time for task 
     pub completed: bool,
-    pub repeat_daily: bool,
+    pub recurrence: Option<Recurrence>,
+}
+
+// Enum to represent recurrence patterns
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Recurrence {
+    Weekly { days: Vec<Weekday>, hour: u8, minute: u8 },
+    EveryXDays { interval: u32, hour: u8, minute: u8 },
 }
 
 impl Task {
@@ -17,7 +24,7 @@ impl Task {
         user_id: u64,
         message: String,
         scheduled_time: Option<DateTime<Utc>>,
-        repeat_daily: bool,
+        recurrence: Option<Recurrence>,
     ) -> Self {
         Self {
             id,
@@ -25,7 +32,7 @@ impl Task {
             message,
             scheduled_time,
             completed: false,
-            repeat_daily,
+            recurrence,
         }
     }
 }

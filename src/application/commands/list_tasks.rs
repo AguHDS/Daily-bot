@@ -18,20 +18,24 @@ pub async fn run_list_tasks(
     let tasks = task_repo.list_tasks();
     let user_id: u64 = command.user.id.into();
 
-    // Separar tareas en Single y Recurrent
-    let single_tasks: Vec<_> = tasks
+    // separate single and recurrent tasks
+    let mut single_tasks: Vec<_> = tasks
         .iter()
         .filter(|t| t.user_id == user_id && t.recurrence.is_none())
         .collect();
 
-    let recurrent_tasks: Vec<_> = tasks
+    let mut recurrent_tasks: Vec<_> = tasks
         .iter()
         .filter(|t| t.user_id == user_id && t.recurrence.is_some())
         .collect();
 
+    // order by ascending id
+    single_tasks.sort_by_key(|t| t.id);
+    recurrent_tasks.sort_by_key(|t| t.id);
+
     let mut content = String::from("📝 **Your tasks:**\n\n");
 
-    // Mostrar Single tasks primero
+    // show single tasks first
     if !single_tasks.is_empty() {
         content.push_str("**Single Tasks:**\n");
         for task in single_tasks {
@@ -42,7 +46,7 @@ pub async fn run_list_tasks(
         content.push('\n');
     }
 
-    // Mostrar Recurrent tasks
+    // show recurrent tasks
     if !recurrent_tasks.is_empty() {
         content.push_str("**Weekly:**\n");
         for task in recurrent_tasks {

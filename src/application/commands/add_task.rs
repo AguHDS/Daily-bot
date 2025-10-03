@@ -158,6 +158,16 @@ pub async fn process_single_task_input(
 
     let dt_utc = Utc.from_utc_datetime(&naive_dt);
 
+    if dt_utc < Utc::now() {
+        let builder = CreateInteractionResponseMessage::default()
+            .content("❌ Cannot create a task in the past.")
+            .ephemeral(true);
+        modal
+            .create_response(ctx, CreateInteractionResponse::Message(builder))
+            .await?;
+        return Ok(());
+    }
+
     let task_id = repo.add_task(modal.user.id.get(), message, Some(dt_utc), None);
 
     if let Err(err) = repo.save_all() {
@@ -199,7 +209,7 @@ pub async fn process_weekly_task_input(
     let (days, hour, minute, formatted_str) = parse_weekly_input(&input_str)?;
     println!("Parsed weekly input: {}", formatted_str);
 
-    // calculate first concurrence from now
+    // calculate first occurrence from now
     let now = Utc::now();
     let mut first_time = now;
     while !days.contains(&first_time.weekday()) {
@@ -210,6 +220,17 @@ pub async fn process_weekly_task_input(
         .with_hour(hour as u32)
         .and_then(|t| t.with_minute(minute as u32))
         .unwrap_or(first_time);
+
+    // check if first occurrence is in the past
+    if first_time < Utc::now() {
+        let builder = CreateInteractionResponseMessage::default()
+            .content("❌ Cannot create a weekly task in the past.")
+            .ephemeral(true);
+        modal
+            .create_response(ctx, CreateInteractionResponse::Message(builder))
+            .await?;
+        return Ok(());
+    }
 
     // create recurrence
     let recurrence = Some(Recurrence::Weekly { days, hour, minute });

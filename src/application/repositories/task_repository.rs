@@ -1,4 +1,4 @@
-use crate::application::domain::Task;
+use crate::application::domain::task::{Recurrence, Task};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -15,7 +15,6 @@ impl TaskRepository {
 
     // Save all tasks to JSON file
     pub fn save_all(&self) -> std::io::Result<()> {
-        // Clonar tasks para evitar deadlock
         let all_tasks: Vec<Task> = {
             let tasks = self.tasks.lock().unwrap();
             tasks.values().cloned().collect()
@@ -56,8 +55,8 @@ impl TaskRepository {
         &self,
         user_id: u64,
         message: String,
-        scheduled_time: DateTime<Utc>,
-        repeat_daily: bool,
+        scheduled_time: Option<DateTime<Utc>>,
+        recurrence: Option<Recurrence>,
     ) -> u64 {
         let id = {
             let mut id_lock = self.next_id.lock().unwrap();
@@ -66,7 +65,7 @@ impl TaskRepository {
             id
         };
 
-        let task = Task::new(id, user_id, message, Some(scheduled_time), repeat_daily);
+        let task = Task::new(id, user_id, message, scheduled_time, recurrence);
 
         {
             let mut tasks = self.tasks.lock().unwrap();
@@ -77,14 +76,10 @@ impl TaskRepository {
         id
     }
 
+    /// List all tasks
     pub fn list_tasks(&self) -> Vec<Task> {
         let tasks = self.tasks.lock().unwrap();
         tasks.values().cloned().collect()
-    }
-
-    pub fn get_task(&self, id: u64) -> Option<Task> {
-        let tasks = self.tasks.lock().unwrap();
-        tasks.get(&id).cloned()
     }
 
     /// Complete a task and save to JSON
@@ -100,7 +95,7 @@ impl TaskRepository {
         };
 
         if updated {
-            let _ = self.save_all(); // Guardar fuera del lock
+            let _ = self.save_all();
         }
 
         updated
@@ -114,26 +109,9 @@ impl TaskRepository {
         };
 
         if removed {
-            let _ = self.save_all(); // Guardar fuera del lock
+            let _ = self.save_all();
         }
 
         removed
-    }
-
-    /// Reset all daily tasks and save to JSON
-    pub fn reset_daily_tasks(&self) {
-        {
-            let mut tasks = self.tasks.lock().unwrap();
-            for task in tasks.values_mut() {
-                if task.repeat_daily && task.completed {
-                    if let Some(time) = task.scheduled_time {
-                        task.scheduled_time = Some(time + chrono::Duration::days(1));
-                    }
-                    task.completed = false;
-                }
-            }
-        }
-
-        let _ = self.save_all(); // Guardar fuera del lock
     }
 }

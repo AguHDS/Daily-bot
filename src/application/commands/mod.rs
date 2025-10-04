@@ -3,6 +3,7 @@ pub mod add_task;
 pub mod list_tasks;
 pub mod remove_task;
 pub mod utils;
+pub mod edit_task;
 
 pub use help::register_help_command;
 pub use help::run_help_command;
@@ -12,3 +13,4 @@ pub use list_tasks::register_list_tasks_command;
 pub use list_tasks::run_list_tasks;
 pub use remove_task::register_remove_task_command;
 pub use remove_task::run_remove_task;
+

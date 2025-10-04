@@ -82,23 +82,43 @@ impl TaskRepository {
         tasks.values().cloned().collect()
     }
 
-    // Complete a task and save to JSON
-    pub fn complete_task(&self, id: u64) -> bool {
-        let updated = {
+    pub fn edit_task(
+        &self,
+        task_id: u64,
+        new_message: Option<String>,
+        new_scheduled_time: Option<DateTime<Utc>>,
+        new_recurrence: Option<Recurrence>,
+    ) -> Result<Task, String> {
+        // Bloque limitado solo para mutar la tarea
+        let updated_task = {
             let mut tasks = self.tasks.lock().unwrap();
-            if let Some(task) = tasks.get_mut(&id) {
-                task.completed = true;
-                true
-            } else {
-                false
+
+            let task = tasks
+                .get_mut(&task_id)
+                .ok_or_else(|| format!("No se encontró la tarea con ID {}", task_id))?;
+
+            if let Some(msg) = new_message {
+                if msg.trim().is_empty() {
+                    return Err("El nombre de la tarea no puede estar vacío.".to_string());
+                }
+                task.message = msg;
             }
-        };
 
-        if updated {
-            let _ = self.save_all();
-        }
+            if let Some(new_time) = new_scheduled_time {
+                task.scheduled_time = Some(new_time);
+            }
 
-        updated
+            if let Some(recur) = new_recurrence {
+                task.recurrence = Some(recur);
+            }
+
+            task.clone()
+        }; // 🔓 lock se libera acá
+
+        // Ahora que no tenemos el lock, guardamos en JSON sin riesgo de deadlock
+        let _ = self.save_all();
+
+        Ok(updated_task)
     }
 
     // Remove a task and save to JSON
@@ -117,9 +137,17 @@ impl TaskRepository {
 
     // Remove all tasks for a specific user and save to JSON
     pub fn remove_all_by_user(&self, user_id: u64) -> usize {
-        let mut tasks = self.tasks.lock().unwrap();
-        let before = tasks.len();
-        tasks.retain(|_, task| task.user_id != user_id);
-        before - tasks.len()
+        let removed_count = {
+            let mut tasks = self.tasks.lock().unwrap();
+            let before = tasks.len();
+            tasks.retain(|_, task| task.user_id != user_id);
+            before - tasks.len()
+        };
+
+        if removed_count > 0 {
+            let _ = self.save_all();
+        }
+
+        removed_count
     }
 }

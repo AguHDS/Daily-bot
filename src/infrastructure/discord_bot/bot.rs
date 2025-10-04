@@ -1,6 +1,7 @@
 use crate::application::commands::{
     register_add_task_command, register_help_command, register_list_tasks_command,
     register_remove_task_command, run_add_task, run_help_command, run_list_tasks, run_remove_task,
+    edit_task,
 };
 use crate::application::repositories::task_repository::TaskRepository;
 use crate::application::scheduler::scheduler_tokio::start_scheduler;
@@ -18,7 +19,7 @@ impl EventHandler for CommandHandler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         println!("Bot ready as {}", ready.user.name);
 
-        // register commands for each guild the bot is in
+        // register commands in each guild
         for guild_status in ready.guilds {
             let guild_id: GuildId = guild_status.id;
 
@@ -33,6 +34,9 @@ impl EventHandler for CommandHandler {
                 .await;
             let _ = guild_id
                 .create_command(&ctx.http, register_help_command())
+                .await;
+            let _ = guild_id
+                .create_command(&ctx.http, edit_task::register_edit_task_command())
                 .await;
 
             println!("Commands registered for guild {}", guild_id.get());
@@ -51,14 +55,14 @@ impl EventHandler for CommandHandler {
                 "list_tasks" => run_list_tasks(&ctx, &command, &self.task_repo).await,
                 "remove_task" => run_remove_task(&ctx, &command, &self.task_repo).await,
                 "help" => run_help_command(&ctx, &command).await,
+                "edit_task" => edit_task::run_edit_task(&ctx, &command, &self.task_repo).await,
                 _ => println!("Command not recognized: {}", command.data.name),
             }
         }
 
-        // handle components (buttons, select menus)
+        // components management (select menus, buttons)
         if let Some(component) = interaction.clone().message_component() {
-            // Llamar al handler de remove_task si es un select menu o botón relevante
-            let relevant_ids = [
+            let relevant_remove_ids = [
                 "remove_menu_single",
                 "remove_menu_weekly",
                 "remove_all_button",
@@ -66,21 +70,32 @@ impl EventHandler for CommandHandler {
                 "confirm_remove_all_no",
             ];
 
-            if relevant_ids.contains(&component.data.custom_id.as_str()) {
+            if relevant_remove_ids.contains(&component.data.custom_id.as_str()) {
                 crate::application::commands::remove_task::handle_remove_select(
                     &ctx,
                     &component,
                     &self.task_repo,
                 )
                 .await;
-            } else {
-                println!("Component ignored: {}", component.data.custom_id);
+            }
+
+            let relevant_edit_ids = ["edit_menu_single", "edit_menu_weekly"];
+
+            if relevant_edit_ids.contains(&component.data.custom_id.as_str()) {
+                crate::application::commands::edit_task::handle_edit_select(
+                    &ctx,
+                    &component,
+                    &self.task_repo,
+                )
+                .await;
             }
         }
 
-        // handle modals submit
+        // handle submit modal
         if let Some(modal) = interaction.clone().modal_submit() {
             let custom_id = &modal.data.custom_id;
+
+            // single task modal
             if custom_id.starts_with("single_task_modal|") {
                 let parts: Vec<&str> = custom_id.splitn(2, '|').collect();
                 let message = parts.get(1).unwrap_or(&"").to_string();
@@ -108,6 +123,13 @@ impl EventHandler for CommandHandler {
                 .await
                 {
                     eprintln!("Failed to process weekly task input: {}", err);
+                }
+            }
+            else if custom_id.starts_with("edit_task_modal|") {
+                if let Err(err) =
+                    edit_task::process_edit_task_modal(&ctx, &modal, &self.task_repo).await
+                {
+                    eprintln!("Failed to process edit task modal: {}", err);
                 }
             }
         }

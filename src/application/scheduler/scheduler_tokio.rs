@@ -29,9 +29,8 @@ pub fn start_scheduler(ctx: Arc<Context>, repo: Arc<TaskRepository>) {
                         "[SCHEDULER] Reminder for user {}: {}",
                         user_name, task.message
                     );
-
-                    // mark task as completed to avoid repeated reminders
-                    repo.complete_task(task.id);
+                    // TODO: if a single task is completed, delete it
+                    // for weekly tasks, this will be unlimited reminder
                 }
             }
 

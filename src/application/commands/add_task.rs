@@ -1,5 +1,6 @@
 use crate::application::domain::Recurrence;
 use crate::application::repositories::task_repository::TaskRepository;
+use crate::application::commands::utils::weekly_parser::parse_weekly_input;
 use chrono::{TimeZone, Datelike, NaiveDateTime, Timelike, Utc};
 use serenity::{
     all::{
@@ -141,7 +142,7 @@ pub async fn process_single_task_input(
     modal: &ModalInteraction,
     repo: &Arc<TaskRepository>,
     message: String,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let date_time_str: String = match modal.data.components.get(0) {
         Some(row) => match row.components.get(0) {
             Some(ActionRowComponent::InputText(input)) => match &input.value {
@@ -190,9 +191,7 @@ pub async fn process_weekly_task_input(
     modal: &ModalInteraction,
     repo: &Arc<TaskRepository>,
     message: String,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use crate::application::commands::utils::weekly_parser::parse_weekly_input;
-
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // extract input from modal
     let input_str: String = match modal.data.components.get(0) {
         Some(row) => match row.components.get(0) {
@@ -205,9 +204,14 @@ pub async fn process_weekly_task_input(
         None => return Err("No input value found".into()),
     };
 
-    // flexible parser
-    let (days, hour, minute, formatted_str) = parse_weekly_input(&input_str)?;
-    println!("Parsed weekly input: {}", formatted_str);
+    // flexible parser, map error to Send + Sync
+    let (days, hour, minute, formatted_str) = parse_weekly_input(&input_str)
+    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+        // Convertimos e en Box<dyn StdError + Send + Sync>
+        let s: String = format!("{}", e); // convertir a String
+        Box::<dyn std::error::Error + Send + Sync>::from(s)
+    })?;
+
 
     // calculate first occurrence from now
     let now = Utc::now();
@@ -232,7 +236,7 @@ pub async fn process_weekly_task_input(
         return Ok(());
     }
 
-    // create recurrence
+    // create recurrence (weekly)
     let recurrence = Some(Recurrence::Weekly { days, hour, minute });
 
     // add task to repo

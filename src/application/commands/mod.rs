@@ -4,6 +4,7 @@ pub mod list_tasks;
 pub mod remove_task;
 pub mod utils;
 pub mod edit_task;
+pub mod interaction_handlers;
 
 pub use help::register_help_command;
 pub use help::run_help_command;

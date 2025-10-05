@@ -3,25 +3,25 @@ use serenity::all::{
 };
 use serenity::prelude::*;
 
-// registers /help command
 pub fn register_help_command() -> CreateCommand {
     CreateCommand::new("help").description("Show available commands")
 }
 
-// /help command logic
 pub async fn run_help_command(ctx: &Context, command: &CommandInteraction) {
     let content = "\
-Comandos disponibles:\n\
-/help - Show this message\n\
-/add_task - Create new task\n\
-/list_tasks - Task list\n\
-/remove_task - Delete a task by ID";
+**Available Commands:**\n\
+`/add_task` - Create a new task (single or weekly)\n\
+`/list_tasks` - List all your tasks\n\
+`/remove_task` - Remove specific tasks or all of them\n\
+`/edit_task` - Edit a task by selecting it";
 
     let builder = CreateInteractionResponse::Message(
-        CreateInteractionResponseMessage::default().content(content),
+        CreateInteractionResponseMessage::default()
+            .content(content)
+            .ephemeral(true),
     );
 
     if let Err(err) = command.create_response(&ctx.http, builder).await {
-        eprintln!("Error when /help: {:?}", err);
+        eprintln!("Error executing /help: {:?}", err);
     }
 }

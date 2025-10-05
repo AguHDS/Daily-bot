@@ -1,10 +1,12 @@
-use crate::application::domain::Recurrence;
+use crate::application::commands::utils::{
+    get_string_option, notification_method_as_str, parse_notification_method, parse_weekly_input,
+};
+use crate::application::domain::{NotificationMethod, Recurrence, Task};
 use crate::application::repositories::task_repository::TaskRepository;
-use crate::application::commands::utils::weekly_parser::parse_weekly_input;
-use chrono::{TimeZone, Datelike, NaiveDateTime, Timelike, Utc};
+use chrono::{Datelike, NaiveDateTime, TimeZone, Timelike, Utc};
 use serenity::{
     all::{
-        ActionRowComponent, CommandDataOptionValue, CommandInteraction, CommandOptionType,
+        ActionRowComponent, CommandInteraction, CommandOptionType,
         CreateCommand, CreateCommandOption, CreateInteractionResponse,
         CreateInteractionResponseMessage, InputTextStyle, ModalInteraction,
     },
@@ -13,7 +15,6 @@ use serenity::{
 };
 use std::sync::Arc;
 
-// Registers /add_task command
 pub fn register_add_task_command() -> CreateCommand {
     CreateCommand::new("add_task")
         .description("Add a new task")
@@ -31,30 +32,36 @@ pub fn register_add_task_command() -> CreateCommand {
             .add_string_choice("Weekly (repeats on specific days and hour)", "weekly")
             .required(true),
         )
+        .add_option(
+            CreateCommandOption::new(
+                CommandOptionType::String,
+                "notify",
+                "Notification method: DM, Channel, Both",
+            )
+            .add_string_choice("DM", "DM")
+            .add_string_choice("Channel", "Channel")
+            .add_string_choice("Both", "Both")
+            .required(true),
+        )
 }
 
-// Execute /add_task command logic
-pub async fn run_add_task(ctx: &Context, command: &CommandInteraction, _repo: &TaskRepository) {
+pub async fn run_add_task(
+    ctx: &Context,
+    command: &CommandInteraction,
+    _repo: &Arc<dyn TaskRepository>,
+) {
     let options = &command.data.options;
 
+    use serenity::all::CreateInteractionResponse;
+    use serenity::builder::CreateInteractionResponseMessage;
+
     // extract message
-    let message = match options.get(0) {
-        Some(opt) => match &opt.value {
-            CommandDataOptionValue::String(s) => s.clone(),
-            _ => {
-                let builder = CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::default()
-                        .content("❌ Invalid message")
-                        .ephemeral(true),
-                );
-                let _ = command.create_response(&ctx.http, builder).await;
-                return;
-            }
-        },
+    let message = match get_string_option(options, 0) {
+        Some(msg) => msg,
         None => {
             let builder = CreateInteractionResponse::Message(
                 CreateInteractionResponseMessage::default()
-                    .content("❌ Missing message")
+                    .content("❌ Missing or invalid message")
                     .ephemeral(true),
             );
             let _ = command.create_response(&ctx.http, builder).await;
@@ -62,24 +69,13 @@ pub async fn run_add_task(ctx: &Context, command: &CommandInteraction, _repo: &T
         }
     };
 
-    // extract task_type
-    let task_type = match options.get(1) {
-        Some(opt) => match &opt.value {
-            CommandDataOptionValue::String(s) => s.as_str(),
-            _ => {
-                let builder = CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::default()
-                        .content("❌ Invalid task type")
-                        .ephemeral(true),
-                );
-                let _ = command.create_response(&ctx.http, builder).await;
-                return;
-            }
-        },
+    // extract task type
+    let task_type = match get_string_option(options, 1) {
+        Some(s) => s,
         None => {
             let builder = CreateInteractionResponse::Message(
                 CreateInteractionResponseMessage::default()
-                    .content("❌ Missing task type")
+                    .content("❌ Missing or invalid task type")
                     .ephemeral(true),
             );
             let _ = command.create_response(&ctx.http, builder).await;
@@ -87,182 +83,158 @@ pub async fn run_add_task(ctx: &Context, command: &CommandInteraction, _repo: &T
         }
     };
 
-    // weekly task → launch modal
-    if task_type == "weekly" {
-        let input_text = CreateInputText::new(
+    // extract notification_method
+    let notification_method = match get_string_option(&options, 2) {
+        Some(s) => match s.as_str() {
+            "DM" => NotificationMethod::DM,
+            "Channel" => NotificationMethod::Channel,
+            "Both" => NotificationMethod::Both,
+            _ => NotificationMethod::DM, // default value if unknown
+        },
+        None => NotificationMethod::DM, // default value if missing
+    };
+
+    // launch modal
+    let input_text = if task_type == "weekly" {
+        CreateInputText::new(
             InputTextStyle::Short,
             "Enter days and hour (Mon,Wed,Fri 14:00)",
             "Format: Mon,Wed,Fri 14:30",
         )
-        .required(true);
-
-        let action_row = CreateActionRow::InputText(input_text);
-
-        let modal = CreateModal::new(
-            &format!("weekly_task_modal|{}", message),
-            "📅 Set Weekly Task",
-        )
-        .components(vec![action_row]);
-
-        if let Err(err) = command
-            .create_response(&ctx.http, CreateInteractionResponse::Modal(modal))
-            .await
-        {
-            eprintln!("Failed to show weekly modal: {}", err);
-        }
-        return;
-    }
-
-    // single task → launch modal
-    if task_type == "single" {
-        let input_text = CreateInputText::new(
+        .required(true)
+    } else {
+        CreateInputText::new(
             InputTextStyle::Short,
-            "Enter date (Year-Month-Day Hour:Minutes)",
+            "Enter date (YYYY-MM-DD HH:MM)",
             "Enter date & time (YYYY-MM-DD HH:MM)",
         )
-        .required(true);
+        .required(true)
+    };
 
-        let action_row = CreateActionRow::InputText(input_text);
+    let action_row = CreateActionRow::InputText(input_text);
 
-        let modal = CreateModal::new(&format!("single_task_modal|{}", message), "📅 Set Task")
-            .components(vec![action_row]);
+    let modal_custom_id = format!(
+        "{}_task_modal|{}|{}",
+        task_type,
+        message.replace('|', "-"), // send problems with separator
+        notification_method_as_str(&notification_method)
+    );
 
-        if let Err(err) = command
-            .create_response(&ctx.http, CreateInteractionResponse::Modal(modal))
-            .await
-        {
-            eprintln!("Failed to show single modal: {}", err);
+    let modal = CreateModal::new(&modal_custom_id, "📅 Set Task").components(vec![action_row]);
+
+    if let Err(err) = command
+        .create_response(&ctx.http, CreateInteractionResponse::Modal(modal))
+        .await
+    {
+        eprintln!("Failed to show modal: {}", err);
+    }
+}
+
+/// Process the response from a modal
+pub async fn process_task_modal_input(
+    ctx: &Context,
+    modal: &ModalInteraction,
+    repo: &Arc<dyn TaskRepository>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // parse custom_id: "single_task_modal|message|NotificationMethod"
+    let parts: Vec<&str> = modal.data.custom_id.split('|').collect();
+    if parts.len() != 3 {
+        return Err("Invalid modal custom_id format".into());
+    }
+
+    let task_type = parts[0].strip_suffix("_task_modal").unwrap_or("single");
+    let message = parts[1].to_string();
+    let notification_method = parse_notification_method(parts[2]);
+
+    // extract input text
+    let input_str = modal
+        .data
+        .components
+        .get(0)
+        .and_then(|row| row.components.get(0))
+        .and_then(|c| match c {
+            ActionRowComponent::InputText(input) => input.value.clone(),
+            _ => None,
+        })
+        .ok_or("No input value found")?;
+
+    if task_type == "single" {
+        let naive_dt = NaiveDateTime::parse_from_str(&input_str, "%Y-%m-%d %H:%M")
+            .map_err(|_| "Failed to parse date/time. Use YYYY-MM-DD HH:MM")?;
+        let dt_utc = Utc.from_utc_datetime(&naive_dt);
+
+        if dt_utc < Utc::now() {
+            let builder = CreateInteractionResponseMessage::default()
+                .content("❌ Cannot create a task in the past.")
+                .ephemeral(true);
+            modal
+                .create_response(ctx, CreateInteractionResponse::Message(builder))
+                .await?;
+            return Ok(());
         }
-    }
-}
 
-// Process the response from the "single" task modal
-pub async fn process_single_task_input(
-    ctx: &Context,
-    modal: &ModalInteraction,
-    repo: &Arc<TaskRepository>,
-    message: String,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let date_time_str: String = match modal.data.components.get(0) {
-        Some(row) => match row.components.get(0) {
-            Some(ActionRowComponent::InputText(input)) => match &input.value {
-                Some(val) => val.clone(),
-                None => return Err("No input value found".into()),
-            },
-            _ => return Err("No input value found".into()),
-        },
-        None => return Err("No input value found".into()),
-    };
+        let task = Task::new(
+            0,
+            modal.user.id.get(),
+            message,
+            Some(dt_utc),
+            None,
+            notification_method,
+        );
+        let task_id = repo.add_task(task)?;
 
-    let naive_dt = NaiveDateTime::parse_from_str(&date_time_str, "%Y-%m-%d %H:%M")
-        .map_err(|_| "Failed to parse date/time. Use YYYY-MM-DD HH:MM")?;
-
-    let dt_utc = Utc.from_utc_datetime(&naive_dt);
-
-    if dt_utc < Utc::now() {
-        let builder = CreateInteractionResponseMessage::default()
-            .content("❌ Cannot create a task in the past.")
-            .ephemeral(true);
+        let response_content = format!("✅ Single task **#{}** created for {}", task_id, dt_utc);
+        let builder = CreateInteractionResponseMessage::default().content(response_content);
         modal
             .create_response(ctx, CreateInteractionResponse::Message(builder))
             .await?;
-        return Ok(());
-    }
+    } else {
+        // weekly task
+        let (days, hour, minute, formatted_str) = parse_weekly_input(&input_str).map_err(
+            |e| -> Box<dyn std::error::Error + Send + Sync> { Box::from(format!("{}", e)) },
+        )?;
 
-    let task_id = repo.add_task(modal.user.id.get(), message, Some(dt_utc), None);
+        let now = Utc::now();
+        let mut first_time = now;
+        while !days.contains(&first_time.weekday()) {
+            first_time = first_time + chrono::Duration::days(1);
+        }
 
-    if let Err(err) = repo.save_all() {
-        eprintln!("Failed to save tasks to JSON: {}", err);
-    }
+        first_time = first_time
+            .with_hour(hour as u32)
+            .and_then(|t| t.with_minute(minute as u32))
+            .ok_or("Invalid hour/minute")?;
 
-    let response_content = format!("✅ Single task **#{}** created for {}", task_id, dt_utc);
-    let builder = CreateInteractionResponseMessage::default().content(response_content);
+        if first_time < Utc::now() {
+            let builder = CreateInteractionResponseMessage::default()
+                .content("❌ Cannot create a weekly task in the past.")
+                .ephemeral(true);
+            modal
+                .create_response(ctx, CreateInteractionResponse::Message(builder))
+                .await?;
+            return Ok(());
+        }
 
-    modal
-        .create_response(ctx, CreateInteractionResponse::Message(builder))
-        .await?;
+        let recurrence = Some(Recurrence::Weekly { days, hour, minute });
+        let task = Task::new(
+            0,
+            modal.user.id.get(),
+            message,
+            Some(first_time),
+            recurrence,
+            notification_method,
+        );
+        let task_id = repo.add_task(task)?;
 
-    Ok(())
-}
-
-// Process the response from the "weekly" task modal
-pub async fn process_weekly_task_input(
-    ctx: &Context,
-    modal: &ModalInteraction,
-    repo: &Arc<TaskRepository>,
-    message: String,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // extract input from modal
-    let input_str: String = match modal.data.components.get(0) {
-        Some(row) => match row.components.get(0) {
-            Some(ActionRowComponent::InputText(input)) => match &input.value {
-                Some(val) => val.clone(),
-                None => return Err("No input value found".into()),
-            },
-            _ => return Err("No input value found".into()),
-        },
-        None => return Err("No input value found".into()),
-    };
-
-    // flexible parser, map error to Send + Sync
-    let (days, hour, minute, formatted_str) = parse_weekly_input(&input_str)
-    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
-        // Convertimos e en Box<dyn StdError + Send + Sync>
-        let s: String = format!("{}", e); // convertir a String
-        Box::<dyn std::error::Error + Send + Sync>::from(s)
-    })?;
-
-
-    // calculate first occurrence from now
-    let now = Utc::now();
-    let mut first_time = now;
-    while !days.contains(&first_time.weekday()) {
-        first_time = first_time + chrono::Duration::days(1);
-    }
-
-    first_time = first_time
-        .with_hour(hour as u32)
-        .and_then(|t| t.with_minute(minute as u32))
-        .unwrap_or(first_time);
-
-    // check if first occurrence is in the past
-    if first_time < Utc::now() {
-        let builder = CreateInteractionResponseMessage::default()
-            .content("❌ Cannot create a weekly task in the past.")
-            .ephemeral(true);
+        let response_content = format!(
+            "✅ Weekly task **#{}** created for {}",
+            task_id, formatted_str
+        );
+        let builder = CreateInteractionResponseMessage::default().content(response_content);
         modal
             .create_response(ctx, CreateInteractionResponse::Message(builder))
             .await?;
-        return Ok(());
     }
-
-    // create recurrence (weekly)
-    let recurrence = Some(Recurrence::Weekly { days, hour, minute });
-
-    // add task to repo
-    let task_id = repo.add_task(
-        modal.user.id.get(),
-        message,
-        Some(first_time),
-        recurrence.clone(),
-    );
-
-    if let Err(err) = repo.save_all() {
-        eprintln!("Failed to save tasks to JSON: {}", err);
-    }
-
-    println!("Weekly task created with ID {}", task_id);
-
-    let response_content = format!(
-        "✅ Weekly task **#{}** created for {}",
-        task_id, formatted_str
-    );
-
-    let builder = CreateInteractionResponseMessage::default().content(response_content);
-
-    modal
-        .create_response(ctx, CreateInteractionResponse::Message(builder))
-        .await?;
 
     Ok(())
 }

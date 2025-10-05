@@ -1,13 +1,14 @@
 use chrono::Weekday;
 
+/// Parse a weekly input string into weekdays, hour, minute, and formatted string
 pub fn parse_weekly_input(input: &str) -> Result<(Vec<Weekday>, u8, u8, String), Box<dyn std::error::Error>> {
-    // Separar días y hora usando la última aparición de espacio
+    // separate days and time
     let input = input.trim();
     let last_space = input.rfind(' ').ok_or("Invalid format. Use: days HH:MM")?;
     let days_str = &input[..last_space];
     let time_str = &input[last_space + 1..];
 
-    // Mapeo de nombres y abreviaturas de días
+    // mapping of day names to chrono::Weekday
     let day_map = vec![
         ("monday", ("Mon", Weekday::Mon)),
         ("tuesday", ("Tue", Weekday::Tue)),
@@ -28,7 +29,7 @@ pub fn parse_weekly_input(input: &str) -> Result<(Vec<Weekday>, u8, u8, String),
     let mut weekdays: Vec<Weekday> = Vec::new();
     let mut day_abbrevs: Vec<String> = Vec::new();
 
-    // Parsear cada día
+    // parse days
     for day in days_str.split(',') {
         let day_clean = day.trim().to_lowercase();
         let mut found = false;
@@ -45,7 +46,7 @@ pub fn parse_weekly_input(input: &str) -> Result<(Vec<Weekday>, u8, u8, String),
         }
     }
 
-    // Ordenar días de lunes → domingo
+    // order days from Monday to Sunday
     let mut combined: Vec<(&Weekday, &String)> = weekdays.iter().zip(day_abbrevs.iter()).collect();
     combined.sort_by_key(|(weekday, _)| weekday.num_days_from_monday());
     let (sorted_weekdays, sorted_abbrevs): (Vec<Weekday>, Vec<&String>) =
@@ -54,7 +55,7 @@ pub fn parse_weekly_input(input: &str) -> Result<(Vec<Weekday>, u8, u8, String),
     let weekdays = sorted_weekdays;
     let day_abbrevs: Vec<String> = sorted_abbrevs.into_iter().map(|s| s.to_string()).collect();
 
-    // Parsear hora
+    // parse hour
     let time_parts: Vec<&str> = time_str.split(':').collect();
     if time_parts.len() != 2 {
         return Err("Invalid time format. Use HH:MM".into());

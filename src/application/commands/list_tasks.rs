@@ -1,24 +1,25 @@
-use crate::application::repositories::task_repository::TaskRepository;
 use crate::application::domain::Recurrence;
-use serenity::builder::{CreateCommand, CreateInteractionResponse, CreateInteractionResponseMessage};
+use crate::application::repositories::task_repository::TaskRepository;
+use serenity::builder::{
+    CreateCommand, CreateInteractionResponse, CreateInteractionResponseMessage,
+};
 use serenity::model::prelude::*;
 use serenity::prelude::*;
+use std::sync::Arc;
 
-// Registers /list_tasks command
 pub fn register_list_tasks_command() -> CreateCommand {
-    CreateCommand::new("list_tasks").description("Current task list")
+    CreateCommand::new("list_tasks").description("📋 Show your current tasks")
 }
 
-// /list_tasks command logic
 pub async fn run_list_tasks(
     ctx: &Context,
     command: &CommandInteraction,
-    task_repo: &TaskRepository,
+    repo: &Arc<dyn TaskRepository>,
 ) {
-    let tasks = task_repo.list_tasks();
+    let tasks = repo.list_tasks();
     let user_id: u64 = command.user.id.into();
 
-    // separate single and recurrent tasks
+    // separate single and recurrent (weekly) tasks
     let mut single_tasks: Vec<_> = tasks
         .iter()
         .filter(|t| t.user_id == user_id && t.recurrence.is_none())
@@ -29,7 +30,7 @@ pub async fn run_list_tasks(
         .filter(|t| t.user_id == user_id && t.recurrence.is_some())
         .collect();
 
-    // order by ascending id
+    // order by ascending ID
     single_tasks.sort_by_key(|t| t.id);
     recurrent_tasks.sort_by_key(|t| t.id);
 
@@ -38,40 +39,64 @@ pub async fn run_list_tasks(
     // show single tasks first
     if !single_tasks.is_empty() {
         content.push_str("**Single Tasks:**\n");
-        for task in single_tasks {
-            let scheduled_str = task.scheduled_time
-                .map_or("Not scheduled".to_string(), |dt| dt.format("%Y-%m-%d at %H:%M").to_string());
-            content.push_str(&format!("**#{}**: {} — {}\n", task.id, task.message, scheduled_str));
+        for task in &single_tasks {
+            let scheduled_str = task
+                .scheduled_time
+                .map_or("Not scheduled".to_string(), |dt| {
+                    dt.format("%Y-%m-%d at %H:%M").to_string()
+                });
+            content.push_str(&format!(
+                "**#{}**: {} — {}\n",
+                task.id, task.message, scheduled_str
+            ));
         }
         content.push('\n');
     }
 
-    // show recurrent tasks
+    // show recurrent (weekly) tasks
     if !recurrent_tasks.is_empty() {
-        content.push_str("**Weekly:**\n");
-        for task in recurrent_tasks {
+        content.push_str("**Weekly Tasks:**\n");
+        for task in &recurrent_tasks {
             let recurrence_str = match &task.recurrence {
                 Some(Recurrence::Weekly { days, hour, minute }) => {
                     let days_str: Vec<String> = days.iter().map(|d| format!("{:?}", d)).collect();
-                    format!("{} at {:02}:{:02}", days_str.join(", "), hour, minute)
+                    format!(
+                        "{} at {:02}:{:02}",
+                        days_str.join(", "),
+                        hour,
+                        minute
+                    )
                 }
-                Some(Recurrence::EveryXDays { interval, hour, minute }) => {
+                Some(Recurrence::EveryXDays {
+                    interval,
+                    hour,
+                    minute,
+                }) => {
                     format!("Every {} days at {:02}:{:02}", interval, hour, minute)
                 }
-                _ => "Unknown recurrence".to_string(),
+                None => "Unknown recurrence".to_string(),
             };
 
-            content.push_str(&format!("**#{}**: {} — {}\n", task.id, task.message, recurrence_str));
+            content.push_str(&format!(
+                "**#{}**: {} — {}\n",
+                task.id, task.message, recurrence_str
+            ));
         }
     }
 
-    if content.trim() == "📝 **Your tasks:**" {
-        content = "You don't have any tasks.".to_string();
+    // if no tasks
+    if single_tasks.is_empty() && recurrent_tasks.is_empty() {
+        content = "You don't have any tasks yet!".to_string();
     }
 
+    // send response
     let builder = CreateInteractionResponse::Message(
-        CreateInteractionResponseMessage::default().content(content),
+        CreateInteractionResponseMessage::default()
+            .content(content)
+            .ephemeral(true),
     );
 
-    let _ = command.create_response(&ctx.http, builder).await;
+    if let Err(e) = command.create_response(&ctx.http, builder).await {
+        eprintln!("Failed to send list_tasks response: {}", e);
+    }
 }

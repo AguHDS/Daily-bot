@@ -4,18 +4,19 @@ use serenity::all::{
     CreateCommand, CreateInteractionResponse, CreateInteractionResponseMessage, CreateSelectMenu,
     CreateSelectMenuKind, CreateSelectMenuOption,
 };
+use std::sync::Arc;
 
 pub fn register_remove_task_command() -> CreateCommand {
-    CreateCommand::new("remove_task").description("Interactive task removal")
+    CreateCommand::new("remove_task").description("Task removal")
 }
 
 pub async fn run_remove_task(
     ctx: &Context,
     command: &CommandInteraction,
-    task_repo: &TaskRepository,
+    repo: &Arc<dyn TaskRepository>,
 ) {
-    let user_id: u64 = u64::from(command.user.id);
-    let tasks = task_repo.list_tasks();
+    let user_id = command.user.id.get();
+    let tasks = repo.list_tasks();
 
     let single_tasks: Vec<_> = tasks
         .iter()
@@ -27,20 +28,14 @@ pub async fn run_remove_task(
         .filter(|t| t.user_id == user_id && t.recurrence.is_some())
         .collect();
 
-    println!(
-        "DEBUG run_remove_task: user_id={} single={} weekly={}",
-        user_id,
-        single_tasks.len(),
-        weekly_tasks.len()
-    );
-
     if single_tasks.is_empty() && weekly_tasks.is_empty() {
         let _ = command
             .create_response(
                 &ctx.http,
                 CreateInteractionResponse::Message(
                     CreateInteractionResponseMessage::default()
-                        .content("You don't have any task to delete."),
+                        .content("You don't have any task to delete")
+                        .ephemeral(true),
                 ),
             )
             .await;
@@ -91,11 +86,10 @@ pub async fn run_remove_task(
         components.push(CreateActionRow::SelectMenu(select));
     }
 
-    // remove all tasks button
+    // remove all button
     let remove_all_button = CreateButton::new("remove_all_button")
         .label("🗑️ Delete all tasks")
         .style(ButtonStyle::Danger);
-
     components.push(CreateActionRow::Buttons(vec![remove_all_button]));
 
     let _ = command
@@ -104,7 +98,8 @@ pub async fn run_remove_task(
             CreateInteractionResponse::Message(
                 CreateInteractionResponseMessage::default()
                     .content("Select a task to delete:")
-                    .components(components),
+                    .components(components)
+                    .ephemeral(true),
             ),
         )
         .await;
@@ -114,7 +109,7 @@ pub async fn run_remove_task(
 pub async fn handle_remove_select(
     ctx: &Context,
     interaction: &ComponentInteraction,
-    task_repo: &TaskRepository,
+    repo: &Arc<dyn TaskRepository>,
 ) {
     use serenity::all::{
         ButtonStyle, ComponentInteractionDataKind, CreateActionRow, CreateButton,
@@ -122,18 +117,19 @@ pub async fn handle_remove_select(
     };
 
     match &interaction.data.kind {
-        // Select menus
         ComponentInteractionDataKind::StringSelect { values } => {
             if let Some(selected) = values.first() {
                 if selected == "remove_all" {
                     let user_id = interaction.user.id.get();
-                    let count = task_repo.remove_all_by_user(user_id);
-                    let content = format!("✅ {} tasks deleted.", count);
+                    let count = repo.remove_all_by_user(user_id);
+                    let content = format!("✅ {} tasks deleted", count);
                     let _ = interaction
                         .create_response(
                             &ctx.http,
                             CreateInteractionResponse::Message(
-                                CreateInteractionResponseMessage::default().content(content),
+                                CreateInteractionResponseMessage::default()
+                                    .content(content)
+                                    .ephemeral(true),
                             ),
                         )
                         .await;
@@ -142,18 +138,19 @@ pub async fn handle_remove_select(
 
                 match selected.parse::<u64>() {
                     Ok(task_id) => {
-                        let removed = task_repo.remove_task(task_id);
+                        let removed = repo.remove_task(task_id);
                         let content = if removed {
                             format!("✅ Task {} deleted.", task_id)
                         } else {
-                            format!("❌ Couldn't find a task {}.", task_id)
+                            format!("❌ Couldn't find task {}.", task_id)
                         };
-
                         let _ = interaction
                             .create_response(
                                 &ctx.http,
                                 CreateInteractionResponse::Message(
-                                    CreateInteractionResponseMessage::default().content(content),
+                                    CreateInteractionResponseMessage::default()
+                                        .content(content)
+                                        .ephemeral(true),
                                 ),
                             )
                             .await;
@@ -164,7 +161,8 @@ pub async fn handle_remove_select(
                                 &ctx.http,
                                 CreateInteractionResponse::Message(
                                     CreateInteractionResponseMessage::default()
-                                        .content("Invalid selection (couldn't parse task Id.)"),
+                                        .content("Invalid selection (couldn't parse task ID)")
+                                        .ephemeral(true),
                                 ),
                             )
                             .await;
@@ -190,22 +188,24 @@ pub async fn handle_remove_select(
                         CreateInteractionResponse::Message(
                             CreateInteractionResponseMessage::default()
                                 .content("⚠️ Are you sure you want to delete all your tasks?")
-                                .components(rows),
+                                .components(rows)
+                                .ephemeral(true),
                         ),
                     )
                     .await;
             }
             "confirm_remove_all_yes" => {
                 let user_id = interaction.user.id.get();
-                let count = task_repo.remove_all_by_user(user_id);
+                let count = repo.remove_all_by_user(user_id);
 
                 let _ = interaction
                     .create_response(
                         &ctx.http,
                         CreateInteractionResponse::Message(
                             CreateInteractionResponseMessage::default()
-                                .content(format!("✅ {} tasks deleted successfully.", count))
-                                .components(vec![]),
+                                .content(format!("✅ {} tasks deleted successfully", count))
+                                .components(vec![])
+                                .ephemeral(true),
                         ),
                     )
                     .await;
@@ -216,8 +216,9 @@ pub async fn handle_remove_select(
                         &ctx.http,
                         CreateInteractionResponse::Message(
                             CreateInteractionResponseMessage::default()
-                                .content("❌ Operation cancelled.")
-                                .components(vec![]),
+                                .content("❌ Operation cancelled")
+                                .components(vec![])
+                                .ephemeral(true),
                         ),
                     )
                     .await;
@@ -231,7 +232,8 @@ pub async fn handle_remove_select(
                     &ctx.http,
                     CreateInteractionResponse::Message(
                         CreateInteractionResponseMessage::default()
-                            .content("Interaction type not handled."),
+                            .content("Interaction type not handled")
+                            .ephemeral(true),
                     ),
                 )
                 .await;

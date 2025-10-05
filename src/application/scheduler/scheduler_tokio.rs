@@ -5,32 +5,36 @@ use serenity::prelude::Context;
 use std::sync::Arc;
 use tokio::time::{Duration, sleep};
 
-/// Scheduler loop for review tasks periodically and triggers reminders when appropriate
-pub fn start_scheduler(ctx: Arc<Context>, repo: Arc<TaskRepository>) {
+/// Scheduler loop for reviewing tasks periodically and triggering reminders
+pub fn start_scheduler(ctx: Arc<Context>, repo: Arc<dyn TaskRepository>) {
     tokio::spawn(async move {
-        println!("[SCHEDULER] Scheduler started");
 
         loop {
             let now = Utc::now();
             let tasks = repo.list_tasks();
 
-            for task in tasks {
-                if task.scheduled_time <= Some(now) && !task.completed {
-                    // convert u64 to userID
+            for task in &tasks {
+                if task.scheduled_time <= Some(now) {
+                    // convert u64 to UserId
                     let user_id = UserId::from(task.user_id);
 
-                    // obtain username from user ID
                     let user_name = match ctx.http.get_user(user_id).await {
                         Ok(user) => format!("{} ({})", user.name, user.id),
                         Err(_) => format!("Unknown ({})", task.user_id),
                     };
 
-                    println!(
-                        "[SCHEDULER] Reminder for user {}: {}",
-                        user_name, task.message
-                    );
-                    // TODO: if a single task is completed, delete it
-                    // for weekly tasks, this will be unlimited reminder
+                    println!("Reminder for user {}: {}", user_name, task.message);
+
+                    // delete single tasks after sending reminder
+                    if task.recurrence.is_none() {
+                        let removed = repo.remove_task(task.id);
+                        if removed {
+                            println!(
+                                "Single task #{} for user {} removed after reminder",
+                                task.id, user_name
+                            );
+                        }
+                    }
                 }
             }
 

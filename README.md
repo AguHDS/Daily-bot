@@ -13,5 +13,5 @@ Daily is a Discord bot designed to help users manage reminders and daily tasks d
 ## Invite the Bot
 
 You can invite Daily to your discord server using this link:
-[Invite Daily](https://discord.com/oauth2/authorize?client_id=1421912868034449458&permissions=2147600384&integration_type=0&scope=bot+applications.commands)
+[Invite Daily](https://discord.com/oauth2/authorize?client_id=1421912868034449458&permissions=2281786368&integration_type=0&scope=bot+applications.commands)
 

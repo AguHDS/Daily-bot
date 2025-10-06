@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc, Weekday};
+use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6,7 +6,7 @@ pub struct Task {
     pub id: u64,
     pub user_id: u64,
     pub message: String,
-    pub scheduled_time: Option<DateTime<Utc>>, // initial scheduled time for task
+    pub scheduled_time: Option<DateTime<Utc>>, // next scheduled time for task
     pub recurrence: Option<Recurrence>,
     pub notification_method: NotificationMethod,
 }
@@ -48,6 +48,47 @@ impl Task {
             scheduled_time,
             recurrence,
             notification_method,
+        }
+    }
+
+    /// Calculates the next occurrence datetime for a recurring(weekly) task. Returns `None` if the task is not recurring
+    pub fn next_occurrence(&self) -> Option<DateTime<Utc>> {
+        match &self.recurrence {
+            Some(Recurrence::Weekly { days, hour, minute }) => {
+                let now = Utc::now();
+                let mut next = now;
+
+                // Start from tomorrow to avoid scheduling again the same day after notifying
+                for i in 1..=7 {
+                    let candidate = now + Duration::days(i);
+                    if days.contains(&candidate.weekday()) {
+                        let candidate_time = candidate
+                            .with_hour(*hour as u32)
+                            .and_then(|t| t.with_minute(*minute as u32))
+                            .and_then(|t| t.with_second(0))
+                            .unwrap();
+                        return Some(candidate_time);
+                    }
+                }
+                None
+            }
+            Some(Recurrence::EveryXDays {
+                interval,
+                hour,
+                minute,
+            }) => {
+                if let Some(current) = self.scheduled_time {
+                    let next = current + Duration::days(*interval as i64);
+                    return Some(
+                        next.with_hour(*hour as u32)
+                            .and_then(|t| t.with_minute(*minute as u32))
+                            .and_then(|t| t.with_second(0))
+                            .unwrap(),
+                    );
+                }
+                None
+            }
+            None => None,
         }
     }
 }

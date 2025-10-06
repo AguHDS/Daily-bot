@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-// implementation of TaskRepository that stores tasks in JSON
+// Implementation of TaskRepository that stores tasks in JSON
 #[derive(Clone, Default)]
 pub struct JsonTaskRepository {
     tasks: Arc<Mutex<HashMap<u64, Task>>>,
@@ -32,11 +32,12 @@ impl JsonTaskRepository {
     }
 
     fn load_all(&self) -> std::io::Result<()> {
-        let loaded_tasks = crate::application::repositories::json_storage::load_tasks(&self.file_path)?;
+        let loaded_tasks =
+            crate::application::repositories::json_storage::load_tasks(&self.file_path)?;
         let mut tasks = self.tasks.lock().unwrap();
         let mut next_id = self.next_id.lock().unwrap();
         for task in loaded_tasks {
-            if task.id >= *next_id { // desreference next_id to get current id
+            if task.id >= *next_id {
                 *next_id = task.id + 1;
             }
             tasks.insert(task.id, task);
@@ -49,7 +50,6 @@ impl TaskRepository for JsonTaskRepository {
     fn add_task(&self, mut task: Task) -> Result<u64, String> {
         let id = {
             let mut id_lock = self.next_id.lock().unwrap();
-            // dereference id_lock to get current id
             let id = *id_lock;
             *id_lock += 1;
             id
@@ -125,5 +125,17 @@ impl TaskRepository for JsonTaskRepository {
     fn list_tasks(&self) -> Vec<Task> {
         let tasks = self.tasks.lock().unwrap();
         tasks.values().cloned().collect()
+    }
+
+    fn update_task_time(&self, task_id: u64, new_time: DateTime<Utc>) -> Result<(), String> {
+        {
+            let mut tasks = self.tasks.lock().unwrap();
+            let task = tasks
+                .get_mut(&task_id)
+                .ok_or_else(|| format!("Couldn't find task with ID {}", task_id))?;
+            task.scheduled_time = Some(new_time);
+        }
+        self.save_all().map_err(|e| e.to_string())?;
+        Ok(())
     }
 }

@@ -1,4 +1,4 @@
-use crate::application::domain::task::{Recurrence, Task};
+use crate::domain::{NotificationMethod, Recurrence, Task};
 use chrono::{DateTime, Utc};
 
 pub trait TaskRepository: Send + Sync {
@@ -10,6 +10,7 @@ pub trait TaskRepository: Send + Sync {
         new_message: Option<String>,
         new_scheduled_time: Option<DateTime<Utc>>,
         new_recurrence: Option<Recurrence>,
+        new_notification_method: Option<NotificationMethod>,
     ) -> Result<Task, String>;
 
     fn remove_task(&self, task_id: u64) -> bool;

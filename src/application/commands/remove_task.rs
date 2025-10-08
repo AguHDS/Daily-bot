@@ -1,4 +1,4 @@
-use crate::application::repositories::task_repository::TaskRepository;
+use crate::application::services::task_service::TaskService;
 use serenity::all::{
     ButtonStyle, CommandInteraction, ComponentInteraction, Context, CreateActionRow, CreateButton,
     CreateCommand, CreateInteractionResponse, CreateInteractionResponseMessage, CreateSelectMenu,
@@ -13,147 +13,140 @@ pub fn register_remove_task_command() -> CreateCommand {
 pub async fn run_remove_task(
     ctx: &Context,
     command: &CommandInteraction,
-    repo: &Arc<dyn TaskRepository>,
+    task_service: &Arc<TaskService>,
 ) {
     let user_id = command.user.id.get();
-    let tasks = repo.list_tasks();
 
-    let single_tasks: Vec<_> = tasks
-        .iter()
-        .filter(|t| t.user_id == user_id && t.recurrence.is_none())
-        .collect();
+    // delegate to TaskService for business logic
+    match task_service.get_user_tasks_for_removal(user_id).await {
+        Ok((single_tasks, weekly_tasks)) => {
+            let mut components: Vec<CreateActionRow> = Vec::new();
 
-    let weekly_tasks: Vec<_> = tasks
-        .iter()
-        .filter(|t| t.user_id == user_id && t.recurrence.is_some())
-        .collect();
+            // single tasks select menu
+            if !single_tasks.is_empty() {
+                let options: Vec<_> = single_tasks
+                    .iter()
+                    .map(|task| {
+                        let label = format!("#{}: {}", task.id, task.message);
+                        CreateSelectMenuOption::new(label, task.id.to_string())
+                    })
+                    .collect();
 
-    if single_tasks.is_empty() && weekly_tasks.is_empty() {
-        let _ = command
-            .create_response(
-                &ctx.http,
-                CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::default()
-                        .content("You don't have any task to delete")
-                        .ephemeral(true),
-                ),
-            )
-            .await;
-        return;
+                let select = CreateSelectMenu::new(
+                    "remove_menu_single",
+                    CreateSelectMenuKind::String { options },
+                )
+                .placeholder("Single tasks")
+                .min_values(1)
+                .max_values(1);
+
+                components.push(CreateActionRow::SelectMenu(select));
+            }
+
+            // weekly tasks select menu
+            if !weekly_tasks.is_empty() {
+                let options: Vec<_> = weekly_tasks
+                    .iter()
+                    .map(|task| {
+                        let label = format!("#{}: {}", task.id, task.message);
+                        CreateSelectMenuOption::new(label, task.id.to_string())
+                    })
+                    .collect();
+
+                let select = CreateSelectMenu::new(
+                    "remove_menu_weekly",
+                    CreateSelectMenuKind::String { options },
+                )
+                .placeholder("Weekly tasks")
+                .min_values(1)
+                .max_values(1);
+
+                components.push(CreateActionRow::SelectMenu(select));
+            }
+
+            // remove all button
+            let remove_all_button = CreateButton::new("remove_all_button")
+                .label("🗑️ Delete all tasks")
+                .style(ButtonStyle::Danger);
+            components.push(CreateActionRow::Buttons(vec![remove_all_button]));
+
+            let _ = command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::default()
+                            .content("Select a task to delete:")
+                            .components(components)
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+        }
+        Err(error_message) => {
+            let _ = command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::default()
+                            .content(error_message)
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+        }
     }
-
-    let mut components: Vec<CreateActionRow> = Vec::new();
-
-    // single tasks select menu
-    if !single_tasks.is_empty() {
-        let options: Vec<_> = single_tasks
-            .iter()
-            .map(|task| {
-                let label = format!("#{}: {}", task.id, task.message);
-                CreateSelectMenuOption::new(label, task.id.to_string())
-            })
-            .collect();
-
-        let select = CreateSelectMenu::new(
-            "remove_menu_single",
-            CreateSelectMenuKind::String { options },
-        )
-        .placeholder("Single tasks")
-        .min_values(1)
-        .max_values(1);
-
-        components.push(CreateActionRow::SelectMenu(select));
-    }
-
-    // weekly tasks select menu
-    if !weekly_tasks.is_empty() {
-        let options: Vec<_> = weekly_tasks
-            .iter()
-            .map(|task| {
-                let label = format!("#{}: {}", task.id, task.message);
-                CreateSelectMenuOption::new(label, task.id.to_string())
-            })
-            .collect();
-
-        let select = CreateSelectMenu::new(
-            "remove_menu_weekly",
-            CreateSelectMenuKind::String { options },
-        )
-        .placeholder("Weekly tasks")
-        .min_values(1)
-        .max_values(1);
-
-        components.push(CreateActionRow::SelectMenu(select));
-    }
-
-    // remove all button
-    let remove_all_button = CreateButton::new("remove_all_button")
-        .label("🗑️ Delete all tasks")
-        .style(ButtonStyle::Danger);
-    components.push(CreateActionRow::Buttons(vec![remove_all_button]));
-
-    let _ = command
-        .create_response(
-            &ctx.http,
-            CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::default()
-                    .content("Select a task to delete:")
-                    .components(components)
-                    .ephemeral(true),
-            ),
-        )
-        .await;
 }
 
-// handler for component interactions
+// Handler for component interactions
 pub async fn handle_remove_select(
     ctx: &Context,
     interaction: &ComponentInteraction,
-    repo: &Arc<dyn TaskRepository>,
+    task_service: &Arc<TaskService>,
 ) {
     use serenity::all::{
-        ButtonStyle, ComponentInteractionDataKind, CreateActionRow, CreateButton,
-        CreateInteractionResponse, CreateInteractionResponseMessage,
+        ComponentInteractionDataKind, CreateActionRow, CreateButton, CreateInteractionResponse,
+        CreateInteractionResponseMessage,
     };
+
+    let user_id = interaction.user.id.get();
 
     match &interaction.data.kind {
         ComponentInteractionDataKind::StringSelect { values } => {
             if let Some(selected) = values.first() {
-                if selected == "remove_all" {
-                    let user_id = interaction.user.id.get();
-                    let count = repo.remove_all_by_user(user_id);
-                    let content = format!("✅ {} tasks deleted", count);
-                    let _ = interaction
-                        .create_response(
-                            &ctx.http,
-                            CreateInteractionResponse::Message(
-                                CreateInteractionResponseMessage::default()
-                                    .content(content)
-                                    .ephemeral(true),
-                            ),
-                        )
-                        .await;
-                    return;
-                }
-
                 match selected.parse::<u64>() {
                     Ok(task_id) => {
-                        let removed = repo.remove_task(task_id);
-                        let content = if removed {
-                            format!("✅ Task {} deleted.", task_id)
-                        } else {
-                            format!("❌ Couldn't find task {}.", task_id)
-                        };
-                        let _ = interaction
-                            .create_response(
-                                &ctx.http,
-                                CreateInteractionResponse::Message(
-                                    CreateInteractionResponseMessage::default()
-                                        .content(content)
-                                        .ephemeral(true),
-                                ),
-                            )
-                            .await;
+                        // delegate to TaskService for business logic
+                        match task_service.remove_user_task(task_id, user_id).await {
+                            Ok(removed) => {
+                                let content = if removed {
+                                    format!("✅ Task #{} deleted.", task_id)
+                                } else {
+                                    format!("❌ Couldn't find task #{}.", task_id)
+                                };
+                                let _ = interaction
+                                    .create_response(
+                                        &ctx.http,
+                                        CreateInteractionResponse::Message(
+                                            CreateInteractionResponseMessage::default()
+                                                .content(content)
+                                                .ephemeral(true),
+                                        ),
+                                    )
+                                    .await;
+                            }
+                            Err(error) => {
+                                let _ = interaction
+                                    .create_response(
+                                        &ctx.http,
+                                        CreateInteractionResponse::Message(
+                                            CreateInteractionResponseMessage::default()
+                                                .content(format!("❌ {}", error))
+                                                .ephemeral(true),
+                                        ),
+                                    )
+                                    .await;
+                            }
+                        }
                     }
                     Err(_) => {
                         let _ = interaction
@@ -161,7 +154,7 @@ pub async fn handle_remove_select(
                                 &ctx.http,
                                 CreateInteractionResponse::Message(
                                     CreateInteractionResponseMessage::default()
-                                        .content("Invalid selection (couldn't parse task ID)")
+                                        .content("❌ Invalid selection (couldn't parse task ID)")
                                         .ephemeral(true),
                                 ),
                             )
@@ -195,20 +188,35 @@ pub async fn handle_remove_select(
                     .await;
             }
             "confirm_remove_all_yes" => {
-                let user_id = interaction.user.id.get();
-                let count = repo.remove_all_by_user(user_id);
-
-                let _ = interaction
-                    .create_response(
-                        &ctx.http,
-                        CreateInteractionResponse::Message(
-                            CreateInteractionResponseMessage::default()
-                                .content(format!("✅ {} tasks deleted successfully", count))
-                                .components(vec![])
-                                .ephemeral(true),
-                        ),
-                    )
-                    .await;
+                // delegate to TaskService for business logic
+                match task_service.remove_all_user_tasks(user_id).await {
+                    Ok(count) => {
+                        let _ = interaction
+                            .create_response(
+                                &ctx.http,
+                                CreateInteractionResponse::Message(
+                                    CreateInteractionResponseMessage::default()
+                                        .content(format!("✅ {} tasks deleted successfully", count))
+                                        .components(vec![])
+                                        .ephemeral(true),
+                                ),
+                            )
+                            .await;
+                    }
+                    Err(error) => {
+                        let _ = interaction
+                            .create_response(
+                                &ctx.http,
+                                CreateInteractionResponse::Message(
+                                    CreateInteractionResponseMessage::default()
+                                        .content(format!("❌ Error: {}", error))
+                                        .components(vec![])
+                                        .ephemeral(true),
+                                ),
+                            )
+                            .await;
+                    }
+                }
             }
             "confirm_remove_all_no" => {
                 let _ = interaction
@@ -232,7 +240,7 @@ pub async fn handle_remove_select(
                     &ctx.http,
                     CreateInteractionResponse::Message(
                         CreateInteractionResponseMessage::default()
-                            .content("Interaction type not handled")
+                            .content("❌ Interaction type not handled")
                             .ephemeral(true),
                     ),
                 )

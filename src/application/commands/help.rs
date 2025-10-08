@@ -13,7 +13,9 @@ pub async fn run_help_command(ctx: &Context, command: &CommandInteraction) {
 `/add_task` - Create a new task (single or weekly)\n\
 `/list_tasks` - List all your tasks\n\
 `/remove_task` - Remove specific tasks or all of them\n\
-`/edit_task` - Edit a task by selecting it";
+`/edit_task` - Edit a task by selecting it\n\
+`/set_notification_channel` - Set the channel for task notifications\n\
+`/help` - Show this help message";
 
     let builder = CreateInteractionResponse::Message(
         CreateInteractionResponseMessage::default()

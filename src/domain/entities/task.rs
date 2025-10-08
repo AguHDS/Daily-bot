@@ -5,10 +5,12 @@ use serde::{Deserialize, Serialize};
 pub struct Task {
     pub id: u64,
     pub user_id: u64,
+    pub guild_id: u64,
     pub message: String,
     pub scheduled_time: Option<DateTime<Utc>>, // next scheduled time for task
     pub recurrence: Option<Recurrence>,
     pub notification_method: NotificationMethod,
+    pub channel_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,29 +38,32 @@ impl Task {
     pub fn new(
         id: u64,
         user_id: u64,
+        guild_id: u64,
         message: String,
         scheduled_time: Option<DateTime<Utc>>,
         recurrence: Option<Recurrence>,
         notification_method: NotificationMethod,
+        channel_id: Option<u64>,
     ) -> Self {
         Self {
             id,
             user_id,
+            guild_id,
             message,
             scheduled_time,
             recurrence,
             notification_method,
+            channel_id,
         }
     }
 
-    /// Calculates the next occurrence datetime for a recurring(weekly) task. Returns `None` if the task is not recurring
+    /// Calculates the next occurrence datetime for a recurring task. Returns `None` if the task is not recurring
     pub fn next_occurrence(&self) -> Option<DateTime<Utc>> {
         match &self.recurrence {
             Some(Recurrence::Weekly { days, hour, minute }) => {
                 let now = Utc::now();
-                let mut next = now;
 
-                // Start from tomorrow to avoid scheduling again the same day after notifying
+                // check next 7 days for the first matching day
                 for i in 1..=7 {
                     let candidate = now + Duration::days(i);
                     if days.contains(&candidate.weekday()) {

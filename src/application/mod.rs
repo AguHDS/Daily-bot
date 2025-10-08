@@ -1,4 +1,2 @@
-pub mod domain;
-pub mod repositories;
-pub mod scheduler;
 pub mod commands;
+pub mod services;

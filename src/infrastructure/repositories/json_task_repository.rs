@@ -1,5 +1,6 @@
-use crate::application::domain::task::{Recurrence, Task};
-use crate::application::repositories::task_repository::TaskRepository;
+use crate::domain::entities::task::{Task, Recurrence, NotificationMethod};
+use crate::domain::repositories::TaskRepository;
+use crate::infrastructure::repositories::json_storage;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -11,7 +12,6 @@ pub struct JsonTaskRepository {
     next_id: Arc<Mutex<u64>>,
     file_path: String,
 }
-
 impl JsonTaskRepository {
     pub fn new(file_path: &str) -> Self {
         let repo = Self {
@@ -28,12 +28,11 @@ impl JsonTaskRepository {
             let tasks = self.tasks.lock().unwrap();
             tasks.values().cloned().collect()
         };
-        crate::application::repositories::json_storage::save_tasks(&all_tasks, &self.file_path)
+        json_storage::save_tasks(&all_tasks, &self.file_path) 
     }
 
     fn load_all(&self) -> std::io::Result<()> {
-        let loaded_tasks =
-            crate::application::repositories::json_storage::load_tasks(&self.file_path)?;
+        let loaded_tasks = json_storage::load_tasks(&self.file_path)?;
         let mut tasks = self.tasks.lock().unwrap();
         let mut next_id = self.next_id.lock().unwrap();
         for task in loaded_tasks {
@@ -71,6 +70,7 @@ impl TaskRepository for JsonTaskRepository {
         new_message: Option<String>,
         new_scheduled_time: Option<DateTime<Utc>>,
         new_recurrence: Option<Recurrence>,
+        new_notification_method: Option<NotificationMethod>,
     ) -> Result<Task, String> {
         let updated_task = {
             let mut tasks = self.tasks.lock().unwrap();
@@ -89,6 +89,9 @@ impl TaskRepository for JsonTaskRepository {
             }
             if let Some(recur) = new_recurrence {
                 task.recurrence = Some(recur);
+            }
+            if let Some(notif) = new_notification_method {
+                task.notification_method = notif;
             }
 
             task.clone()

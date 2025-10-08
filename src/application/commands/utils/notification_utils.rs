@@ -1,5 +1,4 @@
-use crate::application::domain::NotificationMethod;
-
+use crate::domain::{NotificationMethod};
 /// Convert NotificationMethod to &str
 pub fn notification_method_as_str(method: &NotificationMethod) -> &str {
     match method {

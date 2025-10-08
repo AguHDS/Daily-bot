@@ -1,5 +1,6 @@
 use dotenvy::dotenv;
 mod application;
+mod domain;
 mod infrastructure;
 use crate::infrastructure::discord_bot::bot::run_bot;
 

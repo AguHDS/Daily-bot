@@ -1,11 +1,14 @@
 use crate::application::services::config_service::ConfigService;
 use crate::application::services::notification_service::NotificationService;
 use crate::application::services::task_service::TaskService;
-use crate::domain::repositories::{ConfigRepository, TaskRepository};
+use crate::application::services::timezone_service::TimezoneService;
+use crate::domain::repositories::{ConfigRepository, TaskRepository, UserPreferencesRepository};
 use crate::infrastructure::repositories::{
     config_repository::InMemoryConfigRepository, json_task_repository::JsonTaskRepository,
+    json_user_preferences_repository::JsonUserPreferencesRepository,
 };
 use crate::infrastructure::scheduler::scheduler_tokio::start_scheduler;
+use crate::infrastructure::timezone::timezone_manager::TimezoneManager;
 use serenity::model::{application::Interaction, gateway::Ready, id::GuildId};
 use serenity::prelude::*;
 use std::sync::Arc;
@@ -14,6 +17,7 @@ pub struct CommandHandler {
     pub task_service: Arc<TaskService>,
     pub config_service: Arc<ConfigService>,
     pub notification_service: Arc<NotificationService>,
+    pub timezone_service: Arc<TimezoneService>,
 }
 
 #[serenity::async_trait]
@@ -61,6 +65,14 @@ impl EventHandler for CommandHandler {
                     crate::application::commands::set_notification_channel::register_set_notification_channel_command(),
                 )
                 .await;
+
+            // Registrar nuevo comando timezone
+            let _ = guild_id
+                .create_command(
+                    &ctx.http,
+                    crate::application::commands::timezone::register_timezone_command(),
+                )
+                .await;
         }
 
         // Start scheduler with services
@@ -78,13 +90,31 @@ impl EventHandler for CommandHandler {
 
         match &interaction {
             Interaction::Command(command) => match command.data.name.as_str() {
+                "add_task" => {
+                    // 🆕 ACTUALIZAR: Pasar timezone_service a run_add_task
+                    crate::application::commands::add_task::run_add_task(
+                        &ctx,
+                        command,
+                        &self.task_service,
+                        &self.timezone_service,
+                    )
+                    .await;
+                }
                 "set_notification_channel" => {
                     crate::application::commands::set_notification_channel::run_set_notification_channel(
-                &ctx,
-                command,
-                &self.config_service,
-            )
-            .await;
+                        &ctx,
+                        command,
+                        &self.config_service,
+                    )
+                    .await;
+                }
+                "timezone" => {
+                    crate::application::commands::timezone::run_timezone_command(
+                        &ctx,
+                        command,
+                        &self.timezone_service,
+                    )
+                    .await;
                 }
                 _ => {
                     crate::application::commands::interaction_handlers::handle_command(
@@ -93,6 +123,7 @@ impl EventHandler for CommandHandler {
                         &self.task_service,
                         &self.config_service,
                         &self.notification_service,
+                        &self.timezone_service,
                     )
                     .await;
                 }
@@ -102,6 +133,7 @@ impl EventHandler for CommandHandler {
                     &ctx,
                     &interaction,
                     &self.task_service,
+                    &self.timezone_service,
                 )
                 .await;
             }
@@ -110,6 +142,7 @@ impl EventHandler for CommandHandler {
                     &ctx,
                     &interaction,
                     &self.task_service,
+                    &self.timezone_service, // 🆕 Agregar este parámetro
                 )
                 .await;
             }
@@ -128,10 +161,22 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize repositories
     let task_repo: Arc<dyn TaskRepository> = Arc::new(JsonTaskRepository::new("tasks.json"));
     let config_repo: Arc<dyn ConfigRepository> = Arc::new(InMemoryConfigRepository::new());
+    let user_prefs_repo: Arc<dyn UserPreferencesRepository> =
+        Arc::new(JsonUserPreferencesRepository::new("user_preferences.json"));
+
+    // Initialize timezone manager
+    let timezone_manager = Arc::new(
+        TimezoneManager::new()
+            .map_err(|e| format!("Failed to initialize timezone manager: {}", e))?,
+    );
 
     // Initialize services
     let notification_service = Arc::new(NotificationService::new());
     let config_service = Arc::new(ConfigService::new(config_repo.clone()));
+    let timezone_service = Arc::new(TimezoneService::new(
+        user_prefs_repo.clone(),
+        timezone_manager.clone(),
+    ));
     let task_service = Arc::new(TaskService::new(
         task_repo.clone(),
         config_repo.clone(),
@@ -142,6 +187,7 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         task_service: task_service.clone(),
         config_service: config_service.clone(),
         notification_service: notification_service.clone(),
+        timezone_service: timezone_service.clone(),
     };
 
     let mut client = Client::builder(&token, intents)

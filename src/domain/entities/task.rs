@@ -62,18 +62,26 @@ impl Task {
         match &self.recurrence {
             Some(Recurrence::Weekly { days, hour, minute }) => {
                 let now = Utc::now();
+                // 🆕 Crear "hoy a la hora especificada"
+                let today_at_time = now
+                    .with_hour(*hour as u32)
+                    .and_then(|t| t.with_minute(*minute as u32))
+                    .and_then(|t| t.with_second(0))
+                    .unwrap();
 
-                // check next 7 days for the first matching day
-                for i in 1..=7 {
-                    let candidate = now + Duration::days(i);
+                let mut candidate = today_at_time;
+
+                // Si la hora de hoy ya pasó, empezar desde mañana
+                if candidate <= now {
+                    candidate = candidate + Duration::days(1);
+                }
+
+                // Buscar el próximo día que coincida
+                for _ in 0..7 {
                     if days.contains(&candidate.weekday()) {
-                        let candidate_time = candidate
-                            .with_hour(*hour as u32)
-                            .and_then(|t| t.with_minute(*minute as u32))
-                            .and_then(|t| t.with_second(0))
-                            .unwrap();
-                        return Some(candidate_time);
+                        return Some(candidate);
                     }
+                    candidate = candidate + Duration::days(1);
                 }
                 None
             }

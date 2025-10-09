@@ -1,9 +1,9 @@
 use crate::application::services::notification_service::NotificationService;
+use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::entities::task::{NotificationMethod, Recurrence, Task};
 use crate::domain::repositories::{ConfigRepository, TaskRepository};
 use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc, Weekday};
 use std::sync::Arc;
-
 #[derive(Clone)]
 pub struct TaskService {
     task_repo: Arc<dyn TaskRepository>,
@@ -86,7 +86,6 @@ impl TaskService {
             return Err("Task message cannot be empty".to_string());
         }
 
-        // Crear entidad
         let task = Task::new(
             0, // ID se asignará en el repositorio
             user_id,
@@ -98,7 +97,7 @@ impl TaskService {
             None,
         );
 
-        // Persistir
+        // persist
         self.task_repo.add_task(task)
     }
 
@@ -125,7 +124,7 @@ impl TaskService {
             return Err("Invalid time specified".to_string());
         }
 
-        // Calcular primera ocurrencia
+        // put first occurrence
         let first_time = self
             .calculate_first_occurrence(&days, hour, minute)
             .ok_or("Could not calculate first occurrence".to_string())?;
@@ -147,7 +146,7 @@ impl TaskService {
             None,
         );
 
-        // Persistir
+        // persist
         self.task_repo.add_task(task)
     }
 
@@ -158,18 +157,26 @@ impl TaskService {
         minute: u8,
     ) -> Option<DateTime<Utc>> {
         let now = Utc::now();
-        let mut candidate = now;
+        // 🆕 Crear "hoy a la hora especificada"
+        let today_at_time = now
+            .with_hour(hour as u32)
+            .and_then(|t| t.with_minute(minute as u32))
+            .and_then(|t| t.with_second(0))
+            .unwrap();
 
-        // Buscar en los próximos 7 días
-        for _ in 0..7 {
+        let mut candidate = today_at_time;
+
+        // Si la hora de hoy ya pasó, empezar desde mañana
+        if candidate <= now {
             candidate = candidate + Duration::days(1);
+        }
+
+        // Buscar el próximo día que coincida
+        for _ in 0..7 {
             if days.contains(&candidate.weekday()) {
-                return candidate
-                    .with_hour(hour as u32)
-                    .and_then(|t| t.with_minute(minute as u32))
-                    .and_then(|t| t.with_second(0))
-                    .and_then(|t| t.with_nanosecond(0));
+                return Some(candidate);
             }
+            candidate = candidate + Duration::days(1);
         }
         None
     }
@@ -230,27 +237,129 @@ impl TaskService {
 
     // === LIST TASKS BUSINESS LOGIC ===
 
-    pub async fn get_user_tasks_formatted(&self, user_id: u64) -> String {
+    // Used for correct time formatting 
+    fn format_recurrence_for_display_with_timezone(
+        &self,
+        recurrence: &Option<Recurrence>,
+        timezone_service: &TimezoneService,
+        user_timezone: &str,
+    ) -> String {
+        match recurrence {
+            Some(Recurrence::Weekly { days, hour, minute }) => {
+                // Formatear los días de la semana
+                let days_str = days
+                    .iter()
+                    .map(|d| {
+                        // Convertir Weekday a nombre corto en inglés
+                        match d {
+                            Weekday::Mon => "Mon",
+                            Weekday::Tue => "Tue",
+                            Weekday::Wed => "Wed",
+                            Weekday::Thu => "Thu",
+                            Weekday::Fri => "Fri",
+                            Weekday::Sat => "Sat",
+                            Weekday::Sun => "Sun",
+                        }
+                        .to_string()
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                // 🆕 Convertir hora UTC a local
+                let utc_time = Utc::now()
+                    .with_hour(*hour as u32)
+                    .and_then(|t| t.with_minute(*minute as u32))
+                    .and_then(|t| t.with_second(0))
+                    .unwrap();
+
+                let local_time_str =
+                    match timezone_service.format_from_utc_with_timezone(utc_time, user_timezone) {
+                        Ok(local_time) => {
+                            // Extraer solo la hora (HH:MM) del formato "YYYY-MM-DD HH:MM"
+                            if let Some(time_part) = local_time.split_whitespace().nth(1) {
+                                time_part.to_string()
+                            } else {
+                                format!("{:02}:{:02}", hour, minute) // Fallback
+                            }
+                        }
+                        Err(_) => format!("{:02}:{:02}", hour, minute), // Fallback a UTC
+                    };
+
+                format!("Every {} at {}", days_str, local_time_str)
+            }
+            Some(Recurrence::EveryXDays {
+                interval,
+                hour,
+                minute,
+            }) => {
+                // 🆕 También convertir para EveryXDays
+                let utc_time = Utc::now()
+                    .with_hour(*hour as u32)
+                    .and_then(|t| t.with_minute(*minute as u32))
+                    .and_then(|t| t.with_second(0))
+                    .unwrap();
+
+                let local_time_str =
+                    match timezone_service.format_from_utc_with_timezone(utc_time, user_timezone) {
+                        Ok(local_time) => {
+                            if let Some(time_part) = local_time.split_whitespace().nth(1) {
+                                time_part.to_string()
+                            } else {
+                                format!("{:02}:{:02}", hour, minute)
+                            }
+                        }
+                        Err(_) => format!("{:02}:{:02}", hour, minute),
+                    };
+
+                format!("Every {} days at {}", interval, local_time_str)
+            }
+            None => "Not recurring".to_string(),
+        }
+    }
+
+    pub async fn get_user_tasks_formatted(
+        &self,
+        user_id: u64,
+        timezone_service: Arc<TimezoneService>, // 🆕 Nuevo parámetro
+    ) -> String {
         let tasks = self.get_user_tasks(user_id).await;
 
         if tasks.is_empty() {
             return "You don't have any tasks yet!".to_string();
         }
 
-        // Separar tareas simples y recurrentes
+        // 🆕 Obtener la timezone del usuario
+        let user_timezone = match timezone_service.get_user_timezone(user_id).await {
+            Ok(Some(tz)) => tz,
+            Ok(None) => {
+                // Si no tiene timezone configurada, mostrar mensaje y usar UTC
+                return "❌ **Primero configura tu zona horaria**\n\nUsa `/timezone` para configurar tu ubicación y ver las horas correctamente.".to_string();
+            }
+            Err(_) => {
+                // En caso de error, usar UTC como fallback
+                "UTC".to_string()
+            }
+        };
+
+        // separate single and recurrent tasks
         let (single_tasks, recurrent_tasks) = self.separate_tasks_by_type(&tasks);
 
         let mut content = String::from("📝 **Your tasks:**\n\n");
 
-        // Mostrar tareas simples primero
         if !single_tasks.is_empty() {
             content.push_str("**Single Tasks:**\n");
             for task in &single_tasks {
-                let scheduled_str = task
-                    .scheduled_time
-                    .map_or("Not scheduled".to_string(), |dt| {
-                        dt.format("%Y-%m-%d at %H:%M").to_string()
-                    });
+                let scheduled_str =
+                    task.scheduled_time
+                        .map_or("Not scheduled".to_string(), |utc_dt| {
+                            // 🆕 Convertir UTC a timezone local
+                            match timezone_service
+                                .format_from_utc_with_timezone(utc_dt, &user_timezone)
+                            {
+                                Ok(local_time) => local_time,
+                                Err(_) => utc_dt.format("%Y-%m-%d at %H:%M").to_string() + " (UTC)", // Fallback
+                            }
+                        });
                 content.push_str(&format!(
                     "**#{}**: {} — {}\n",
                     task.id, task.message, scheduled_str
@@ -259,11 +368,15 @@ impl TaskService {
             content.push('\n');
         }
 
-        // Mostrar tareas recurrentes
+        // show recurrent(weekly) tasks
         if !recurrent_tasks.is_empty() {
             content.push_str("**Recurrent Tasks:**\n");
             for task in &recurrent_tasks {
-                let recurrence_str = self.format_recurrence_for_display(&task.recurrence);
+                let recurrence_str = self.format_recurrence_for_display_with_timezone(
+                    &task.recurrence,
+                    &timezone_service,
+                    &user_timezone,
+                ); // 🆕 Método actualizado
                 content.push_str(&format!(
                     "**#{}**: {} — {}\n",
                     task.id, task.message, recurrence_str
@@ -344,7 +457,7 @@ impl TaskService {
         new_datetime_input: Option<String>,
         is_weekly_task: bool,
     ) -> Result<Task, String> {
-        // Verificar que la tarea existe y pertenece al usuario
+        // validate task exists and belongs to user
         let current_task = self
             .get_task_for_editing(task_id, user_id)
             .await
@@ -379,7 +492,7 @@ impl TaskService {
             (current_task.scheduled_time, current_task.recurrence)
         };
 
-        // Validar que el mensaje no esté vacío si se proporciona uno nuevo
+        // validates message is not empty if is added a new one
         if let Some(ref message) = new_message {
             if message.trim().is_empty() {
                 return Err("Task title cannot be empty".to_string());
@@ -428,7 +541,7 @@ impl TaskService {
         }
     }
 
-    // === COMMAND HANDLERS (para interaction_handlers) ===
+    // === COMMAND HANDLERS (for interaction_handlers) ===
 
     pub async fn handle_add_task_modal(
         &self,
@@ -438,28 +551,69 @@ impl TaskService {
         message: String,
         notification_method: NotificationMethod,
         input_str: String,
+        timezone_service: Arc<TimezoneService>,
     ) -> Result<u64, String> {
+        // 🆕 Validar que el usuario tenga timezone configurada
+        let user_timezone = match timezone_service.get_user_timezone(user_id).await {
+            Ok(Some(timezone)) => timezone,
+            Ok(None) => {
+                return Err("❌ **Primero configura tu zona horaria**\n\nUsa el comando `/timezone` para configurar tu ubicación antes de crear tareas.".to_string());
+            }
+            Err(e) => {
+                eprintln!("Error getting user timezone: {:?}", e);
+                return Err("❌ Error al verificar tu zona horaria".to_string());
+            }
+        };
+
         match task_type {
             "single" => {
                 let scheduled_time = Self::parse_single_task_input(&input_str)?;
+
+                // 🆕 Convertir fecha/hora local a UTC
+                let local_datetime_str = scheduled_time.format("%Y-%m-%d %H:%M").to_string();
+                let utc_datetime = timezone_service
+                    .parse_to_utc_with_timezone(&local_datetime_str, &user_timezone)
+                    .map_err(|e| format!("❌ Error al procesar la fecha/hora: {:?}", e))?;
+
+                // 🆕 SOLO PARA SINGLE: Validar que no sea una fecha en el pasado
+                let is_future = timezone_service
+                    .is_future_datetime(&local_datetime_str, user_id)
+                    .await
+                    .map_err(|e| format!("❌ Error al validar la fecha: {:?}", e))?;
+
+                if !is_future {
+                    return Err("❌ No puedes programar una tarea en el pasado".to_string());
+                }
+
                 self.create_single_task(
                     user_id,
                     guild_id,
                     message,
-                    scheduled_time,
+                    utc_datetime,
                     notification_method,
                 )
                 .await
             }
             "weekly" => {
                 let (days, hour, minute) = Self::parse_weekly_task_input(&input_str)?;
+
+                // 🆕 Para tareas semanales, crear una fecha dummy para la conversión
+                let time_str = format!("{:02}:{:02}", hour, minute);
+                let local_datetime_str = format!("1970-01-01 {}", time_str);
+                let utc_datetime = timezone_service
+                    .parse_to_utc_with_timezone(&local_datetime_str, &user_timezone)
+                    .map_err(|e| format!("❌ Error al procesar la hora: {:?}", e))?;
+
+                // 🆕 PARA WEEKLY: NO validar si está en el pasado
+                // Las weekly tasks se repiten infinitamente, no importa si la hora ya pasó hoy
+
                 self.create_weekly_task(
                     user_id,
                     guild_id,
                     message,
                     days,
-                    hour,
-                    minute,
+                    utc_datetime.time().hour() as u8,
+                    utc_datetime.time().minute() as u8,
                     notification_method,
                 )
                 .await

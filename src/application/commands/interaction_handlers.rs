@@ -1,6 +1,7 @@
 use crate::application::services::config_service::ConfigService;
 use crate::application::services::notification_service::NotificationService;
 use crate::application::services::task_service::TaskService;
+use crate::application::services::timezone_service::TimezoneService;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 use std::sync::Arc;
@@ -12,18 +13,16 @@ pub async fn handle_command(
     task_service: &Arc<TaskService>,
     config_service: &Arc<ConfigService>,
     _notification_service: &Arc<NotificationService>,
+    timezone_service: &Arc<TimezoneService>,
 ) {
     if let Some(command) = interaction.clone().command() {
         match command.data.name.as_str() {
-            "add_task" => {
-                crate::application::commands::add_task::run_add_task(ctx, &command, task_service)
-                    .await;
-            }
             "list_tasks" => {
                 crate::application::commands::list_tasks::run_list_tasks(
                     ctx,
                     &command,
                     task_service,
+                    timezone_service,
                 )
                 .await;
             }
@@ -48,21 +47,58 @@ pub async fn handle_command(
                 )
                 .await;
             }
+            "timezone" => {
+                // El comando timezone ya se maneja directamente en bot.rs
+                // Esta rama no debería ejecutarse nunca
+                println!("Timezone command should be handled directly in bot.rs");
+            }
             _ => println!("Command not recognized: {}", command.data.name),
         }
     }
 }
 
-/// handle components (buttons, select menus)
+/// Handle components (buttons, select menus)
 pub async fn handle_component(
     ctx: &Context,
     interaction: &Interaction,
     task_service: &Arc<TaskService>,
+    timezone_service: &Arc<TimezoneService>,
 ) {
     if let Some(component) = interaction.clone().message_component() {
         let custom_id = component.data.custom_id.as_str();
 
-        // handle remove-related components
+        // Handle timezone components first
+        if custom_id.starts_with("timezone_confirm:") {
+            let timezone_id = &custom_id["timezone_confirm:".len()..];
+            crate::application::commands::timezone::handle_timezone_confirm(
+                ctx,
+                &component,
+                timezone_id,
+                timezone_service,
+            )
+            .await;
+            return;
+        }
+
+        match custom_id {
+            "timezone_select" => {
+                crate::application::commands::timezone::handle_timezone_select(
+                    ctx,
+                    &component,
+                    timezone_service,
+                )
+                .await;
+                return;
+            }
+            "timezone_cancel" => {
+                crate::application::commands::timezone::handle_timezone_cancel(ctx, &component)
+                    .await;
+                return;
+            }
+            _ => {} // Continue with other handlers
+        }
+
+        // Handle remove-related components
         let remove_ids = [
             "remove_menu_single",
             "remove_menu_weekly",
@@ -78,9 +114,10 @@ pub async fn handle_component(
                 task_service,
             )
             .await;
+            return;
         }
 
-        // handle edit-related components
+        // Handle edit-related components
         let edit_ids = ["edit_menu_single", "edit_menu_weekly"];
         if edit_ids.contains(&custom_id) {
             crate::application::commands::edit_task::handle_edit_select(
@@ -89,7 +126,11 @@ pub async fn handle_component(
                 task_service,
             )
             .await;
+            return;
         }
+
+        // If we get here, no handler was found
+        println!("Unhandled component with custom_id: {}", custom_id);
     }
 }
 
@@ -98,6 +139,7 @@ pub async fn handle_modal(
     ctx: &Context,
     interaction: &Interaction,
     task_service: &Arc<TaskService>,
+    timezone_service: &Arc<TimezoneService>, // 🆕 Nuevo parámetro
 ) {
     if let Some(modal) = interaction.clone().modal_submit() {
         let custom_id = modal.data.custom_id.as_str();
@@ -119,6 +161,7 @@ pub async fn handle_modal(
                 ctx,
                 &modal,
                 task_service,
+                timezone_service, // 🆕 Pasar timezone_service
             )
             .await
             .unwrap_or_else(|err| {

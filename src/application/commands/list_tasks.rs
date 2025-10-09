@@ -1,4 +1,5 @@
 use crate::application::services::task_service::TaskService;
+use crate::application::services::timezone_service::TimezoneService;
 use serenity::builder::{
     CreateCommand, CreateInteractionResponse, CreateInteractionResponseMessage,
 };
@@ -14,11 +15,14 @@ pub async fn run_list_tasks(
     ctx: &Context,
     command: &CommandInteraction,
     task_service: &Arc<TaskService>,
+    timezone_service: &Arc<TimezoneService>, // 🆕 Nuevo parámetro
 ) {
     let user_id: u64 = command.user.id.into();
 
-    // delegate to TaskService for business logic
-    let content = task_service.get_user_tasks_formatted(user_id).await;
+    // 🆕 Pasar timezone_service al método de formateo
+    let content = task_service
+        .get_user_tasks_formatted(user_id, timezone_service.clone())
+        .await;
 
     // send response
     let builder = CreateInteractionResponse::Message(

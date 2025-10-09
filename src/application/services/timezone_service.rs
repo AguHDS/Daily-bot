@@ -8,6 +8,7 @@ use crate::domain::repositories::user_preferences_repository::{
 };
 use crate::infrastructure::timezone::timezone_manager::{TimezoneInfo, TimezoneManager};
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum TimezoneError {
     RepositoryError(RepositoryError),

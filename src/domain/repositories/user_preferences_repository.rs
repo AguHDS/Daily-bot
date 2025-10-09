@@ -3,6 +3,7 @@ use std::fmt::Debug;
 
 use crate::domain::entities::user_preferences::UserPreferences;
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum RepositoryError {
     NotFound,
@@ -22,14 +23,6 @@ pub trait UserPreferencesRepository: Send + Sync + Debug {
     async fn save(&self, preferences: &UserPreferences) -> Result<()>;
 
     /// Delete user's preferences by user ID
+    #[allow(dead_code)]
     async fn delete(&self, user_id: u64) -> Result<()>;
-
-    /// Check if a preference for an user already exists
-    async fn exists(&self, user_id: u64) -> Result<bool> {
-        match self.get(user_id).await {
-            Ok(Some(_)) => Ok(true),
-            Ok(None) => Ok(false),
-            Err(e) => Err(e),
-        }
-    }
 }

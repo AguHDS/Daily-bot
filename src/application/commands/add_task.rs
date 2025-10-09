@@ -15,7 +15,6 @@ use serenity::{
 };
 use std::sync::Arc;
 
-/// Register /add_task command with notification option
 pub fn register_add_task_command() -> CreateCommand {
     CreateCommand::new("add_task")
         .description("Add a new task")
@@ -46,12 +45,11 @@ pub fn register_add_task_command() -> CreateCommand {
         )
 }
 
-/// Run /add_task and launch modal for date/time input
 pub async fn run_add_task(
     ctx: &Context,
     command: &CommandInteraction,
-    task_service: &Arc<TaskService>,
-    timezone_service: &Arc<TimezoneService>, // 🆕 Nuevo parámetro
+    _task_service: &Arc<TaskService>,
+    timezone_service: &Arc<TimezoneService>,
 ) {
     let options = &command.data.options;
 
@@ -75,7 +73,7 @@ pub async fn run_add_task(
         .map(|s| parse_notification_method(&s))
         .unwrap_or(NotificationMethod::DM);
 
-    // 🆕 Obtener la timezone del usuario para mostrar en el placeholder
+    // get user's timezone to display in the placeholder
     let user_id = command.user.id.get();
     let user_timezone_info = match timezone_service.get_user_timezone(user_id).await {
         Ok(Some(timezone)) => match timezone_service.get_current_time_for_timezone(&timezone) {
@@ -90,7 +88,7 @@ pub async fn run_add_task(
         CreateInputText::new(
             InputTextStyle::Short,
             "Enter Days & Hour (Mon,Wed,Fri HH:MM)",
-            "weekly_datetime", // custom_id
+            "weekly_datetime",
         )
         .required(true)
         .placeholder(format!("{}", ""))
@@ -98,7 +96,7 @@ pub async fn run_add_task(
         CreateInputText::new(
             InputTextStyle::Short,
             "Enter Date & Time (YYYY-MM-DD HH:MM)",
-            "single_datetime", // custom_id
+            "single_datetime",
         )
         .required(true)
         .placeholder(format!("{}", user_timezone_info))
@@ -106,15 +104,15 @@ pub async fn run_add_task(
 
     let action_row = CreateActionRow::InputText(input_text);
 
-    // Pass task data in custom_id for modal processing
+    // pass task data in custom_id for modal processing
     let modal_custom_id = format!(
         "{}_task_modal|{}|{}",
         task_type,
-        message.replace('|', "-"), // Sanitize to avoid parsing issues
+        message.replace('|', "-"), // sanitize to avoid parsing issues
         notification_method_as_str(&notification_method)
     );
 
-    let modal = CreateModal::new(&modal_custom_id, "📅 Set Task").components(vec![action_row]);
+    let modal = CreateModal::new(&modal_custom_id, "📅 Create Task").components(vec![action_row]);
 
     if let Err(err) = command
         .create_response(&ctx.http, CreateInteractionResponse::Modal(modal))
@@ -129,9 +127,9 @@ pub async fn process_task_modal_input(
     ctx: &Context,
     modal: &ModalInteraction,
     task_service: &Arc<TaskService>,
-    timezone_service: &Arc<TimezoneService>, // 🆕 Nuevo parámetro
+    timezone_service: &Arc<TimezoneService>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Parse custom_id: "single_task_modal|message|NotificationMethod"
+    // parse custom_id: "single_task_modal|message|NotificationMethod"
     let parts: Vec<&str> = modal.data.custom_id.split('|').collect();
     if parts.len() != 3 {
         return Err("Invalid modal custom_id format".into());
@@ -157,15 +155,15 @@ pub async fn process_task_modal_input(
     let user_id = modal.user.id.get();
     let guild_id = modal.guild_id.map(|g| g.get()).unwrap_or(0);
 
-    // 🆕 Validar que el usuario tenga timezone configurada
+    // validate that the user has timezone configured
     match timezone_service.get_user_timezone(user_id).await {
         Ok(Some(_)) => {
-            // Usuario tiene timezone configurada, proceder normalmente
+            // user has timezone configured, proceed normally
         }
         Ok(None) => {
             let response = CreateInteractionResponse::Message(
                 CreateInteractionResponseMessage::default()
-                    .content("❌ **Primero configura tu zona horaria**\n\nUsa el comando `/timezone` para configurar tu ubicación antes de crear tareas.")
+                    .content("❌ **First, setup your timezone**\n\nUse the `/timezone` command to set your location before creating tasks")
                     .ephemeral(true),
             );
             modal.create_response(&ctx.http, response).await?;
@@ -175,7 +173,7 @@ pub async fn process_task_modal_input(
             eprintln!("Error getting user timezone: {:?}", e);
             let response = CreateInteractionResponse::Message(
                 CreateInteractionResponseMessage::default()
-                    .content("❌ Error al verificar tu zona horaria")
+                    .content("❌ Error veryfing timezone")
                     .ephemeral(true),
             );
             modal.create_response(&ctx.http, response).await?;
@@ -183,7 +181,7 @@ pub async fn process_task_modal_input(
         }
     }
 
-    // delegate to TaskService for business logic - 🆕 Pasar timezone_service
+    // delegate to TaskService for business logic
     match task_service
         .handle_add_task_modal(
             user_id,
@@ -192,7 +190,7 @@ pub async fn process_task_modal_input(
             message,
             notification_method,
             input_str,
-            timezone_service.clone(), // 🆕 Pasar timezone_service
+            timezone_service.clone(),
         )
         .await
     {

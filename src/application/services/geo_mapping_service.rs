@@ -182,6 +182,7 @@ impl GeoMappingService {
 }
 
 // For future migration to MySQL
+#[allow(dead_code)]
 #[async_trait]
 pub trait GeoMappingRepository: Send + Sync {
     async fn get_timezone_for_country(&self, country: &str) -> Option<String>;

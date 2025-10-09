@@ -2,6 +2,7 @@ use crate::application::commands::utils::{
     get_string_option, notification_method_as_str, parse_notification_method,
 };
 use crate::application::services::task_service::TaskService;
+use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::entities::task::NotificationMethod;
 use serenity::{
     all::{
@@ -49,7 +50,8 @@ pub fn register_add_task_command() -> CreateCommand {
 pub async fn run_add_task(
     ctx: &Context,
     command: &CommandInteraction,
-    _task_service: &Arc<TaskService>,
+    task_service: &Arc<TaskService>,
+    timezone_service: &Arc<TimezoneService>, // 🆕 Nuevo parámetro
 ) {
     let options = &command.data.options;
 
@@ -73,21 +75,33 @@ pub async fn run_add_task(
         .map(|s| parse_notification_method(&s))
         .unwrap_or(NotificationMethod::DM);
 
+    // 🆕 Obtener la timezone del usuario para mostrar en el placeholder
+    let user_id = command.user.id.get();
+    let user_timezone_info = match timezone_service.get_user_timezone(user_id).await {
+        Ok(Some(timezone)) => match timezone_service.get_current_time_for_timezone(&timezone) {
+            Ok(current_time) => format!("{}", current_time),
+            Err(_) => "".to_string(),
+        },
+        _ => "".to_string(),
+    };
+
     // create input text depending on task type
     let input_text = if task_type == "weekly" {
         CreateInputText::new(
             InputTextStyle::Short,
-            "Enter days and hour (Mon,Wed,Fri 14:00)",
-            "Format: Mon,Wed,Fri 14:30",
+            "Enter Days & Hour (Mon,Wed,Fri HH:MM)",
+            "weekly_datetime", // custom_id
         )
         .required(true)
+        .placeholder(format!("{}", ""))
     } else {
         CreateInputText::new(
             InputTextStyle::Short,
-            "Enter date (YYYY-MM-DD HH:MM)",
-            "Enter date & time (YYYY-MM-DD HH:MM)",
+            "Enter Date & Time (YYYY-MM-DD HH:MM)",
+            "single_datetime", // custom_id
         )
         .required(true)
+        .placeholder(format!("{}", user_timezone_info))
     };
 
     let action_row = CreateActionRow::InputText(input_text);
@@ -115,6 +129,7 @@ pub async fn process_task_modal_input(
     ctx: &Context,
     modal: &ModalInteraction,
     task_service: &Arc<TaskService>,
+    timezone_service: &Arc<TimezoneService>, // 🆕 Nuevo parámetro
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Parse custom_id: "single_task_modal|message|NotificationMethod"
     let parts: Vec<&str> = modal.data.custom_id.split('|').collect();
@@ -142,7 +157,33 @@ pub async fn process_task_modal_input(
     let user_id = modal.user.id.get();
     let guild_id = modal.guild_id.map(|g| g.get()).unwrap_or(0);
 
-    // delegate to TaskService for business logic
+    // 🆕 Validar que el usuario tenga timezone configurada
+    match timezone_service.get_user_timezone(user_id).await {
+        Ok(Some(_)) => {
+            // Usuario tiene timezone configurada, proceder normalmente
+        }
+        Ok(None) => {
+            let response = CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::default()
+                    .content("❌ **Primero configura tu zona horaria**\n\nUsa el comando `/timezone` para configurar tu ubicación antes de crear tareas.")
+                    .ephemeral(true),
+            );
+            modal.create_response(&ctx.http, response).await?;
+            return Ok(());
+        }
+        Err(e) => {
+            eprintln!("Error getting user timezone: {:?}", e);
+            let response = CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::default()
+                    .content("❌ Error al verificar tu zona horaria")
+                    .ephemeral(true),
+            );
+            modal.create_response(&ctx.http, response).await?;
+            return Ok(());
+        }
+    }
+
+    // delegate to TaskService for business logic - 🆕 Pasar timezone_service
     match task_service
         .handle_add_task_modal(
             user_id,
@@ -151,6 +192,7 @@ pub async fn process_task_modal_input(
             message,
             notification_method,
             input_str,
+            timezone_service.clone(), // 🆕 Pasar timezone_service
         )
         .await
     {

@@ -3,6 +3,7 @@ info-bot.txt
 .vscode
 .env
 tasks.json
+user_preferences.json
 # Added by cargo
 #
 # already existing elements were commented out

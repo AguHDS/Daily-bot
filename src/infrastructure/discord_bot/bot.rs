@@ -65,8 +65,6 @@ impl EventHandler for CommandHandler {
                     crate::application::commands::set_notification_channel::register_set_notification_channel_command(),
                 )
                 .await;
-
-            // Registrar nuevo comando timezone
             let _ = guild_id
                 .create_command(
                     &ctx.http,
@@ -91,7 +89,6 @@ impl EventHandler for CommandHandler {
         match &interaction {
             Interaction::Command(command) => match command.data.name.as_str() {
                 "add_task" => {
-                    // 🆕 ACTUALIZAR: Pasar timezone_service a run_add_task
                     crate::application::commands::add_task::run_add_task(
                         &ctx,
                         command,
@@ -142,7 +139,7 @@ impl EventHandler for CommandHandler {
                     &ctx,
                     &interaction,
                     &self.task_service,
-                    &self.timezone_service, // 🆕 Agregar este parámetro
+                    &self.timezone_service,
                 )
                 .await;
             }
@@ -158,19 +155,19 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         | GatewayIntents::GUILD_MEMBERS
         | GatewayIntents::GUILD_MESSAGE_REACTIONS;
 
-    // Initialize repositories
+    // initialize repositories
     let task_repo: Arc<dyn TaskRepository> = Arc::new(JsonTaskRepository::new("tasks.json"));
     let config_repo: Arc<dyn ConfigRepository> = Arc::new(InMemoryConfigRepository::new());
     let user_prefs_repo: Arc<dyn UserPreferencesRepository> =
         Arc::new(JsonUserPreferencesRepository::new("user_preferences.json"));
 
-    // Initialize timezone manager
+    // initialize timezone manager
     let timezone_manager = Arc::new(
         TimezoneManager::new()
             .map_err(|e| format!("Failed to initialize timezone manager: {}", e))?,
     );
 
-    // Initialize services
+    // initialize services
     let notification_service = Arc::new(NotificationService::new());
     let config_service = Arc::new(ConfigService::new(config_repo.clone()));
     let timezone_service = Arc::new(TimezoneService::new(

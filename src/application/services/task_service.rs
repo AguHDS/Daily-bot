@@ -36,14 +36,14 @@ impl TaskService {
     /// Handle task after notification (remove single tasks / reschedule recurring tasks)
     pub async fn handle_post_notification_task(&self, task: &Task) -> Result<(), String> {
         if task.recurrence.is_none() {
-            // Single task - remove after notification
+            // single task - remove after notification
             let removed = self.task_repo.remove_task(task.id);
             if removed {
                 println!("✅ Single task #{} removed after notification", task.id);
             }
             Ok(())
         } else {
-            // Recurring task - reschedule for next occurrence
+            // recurring task (weekly) - reschedule for next occurrence
             if let Some(next_time) = task.next_occurrence() {
                 match self.task_repo.update_task_time(task.id, next_time) {
                     Ok(_) => {
@@ -77,7 +77,6 @@ impl TaskService {
         scheduled_time: DateTime<Utc>,
         notification_method: NotificationMethod,
     ) -> Result<u64, String> {
-        // Validaciones de negocio
         if scheduled_time < Utc::now() {
             return Err("Cannot create a task in the past".to_string());
         }
@@ -87,12 +86,12 @@ impl TaskService {
         }
 
         let task = Task::new(
-            0, // ID se asignará en el repositorio
+            0, // ID is assigned in repo
             user_id,
             guild_id,
             message,
             Some(scheduled_time),
-            None, // No recurrence para tarea única
+            None,
             notification_method,
             None,
         );
@@ -111,7 +110,6 @@ impl TaskService {
         minute: u8,
         notification_method: NotificationMethod,
     ) -> Result<u64, String> {
-        // Validaciones
         if message.trim().is_empty() {
             return Err("Task message cannot be empty".to_string());
         }
@@ -133,7 +131,7 @@ impl TaskService {
             return Err("Cannot create a weekly task in the past".to_string());
         }
 
-        // Crear entidad
+        // create entity
         let recurrence = Some(Recurrence::Weekly { days, hour, minute });
         let task = Task::new(
             0,
@@ -157,7 +155,7 @@ impl TaskService {
         minute: u8,
     ) -> Option<DateTime<Utc>> {
         let now = Utc::now();
-        // 🆕 Crear "hoy a la hora especificada"
+        // create "today at the specified time"
         let today_at_time = now
             .with_hour(hour as u32)
             .and_then(|t| t.with_minute(minute as u32))
@@ -166,12 +164,12 @@ impl TaskService {
 
         let mut candidate = today_at_time;
 
-        // Si la hora de hoy ya pasó, empezar desde mañana
+        // if today's time has already passed, start from tomorrow
         if candidate <= now {
             candidate = candidate + Duration::days(1);
         }
 
-        // Buscar el próximo día que coincida
+        // find the next matching day
         for _ in 0..7 {
             if days.contains(&candidate.weekday()) {
                 return Some(candidate);
@@ -192,7 +190,7 @@ impl TaskService {
     // === REMOVE TASK BUSINESS LOGIC ===
 
     pub async fn remove_user_task(&self, task_id: u64, user_id: u64) -> Result<bool, String> {
-        // Verificar que la tarea pertenece al usuario antes de eliminar
+        // verify that the task belongs to the user
         let tasks = self.task_repo.list_tasks();
         if let Some(task) = tasks.into_iter().find(|t| t.id == task_id) {
             if task.user_id == user_id {
@@ -246,11 +244,11 @@ impl TaskService {
     ) -> String {
         match recurrence {
             Some(Recurrence::Weekly { days, hour, minute }) => {
-                // Formatear los días de la semana
+                // format the days of the week
                 let days_str = days
                     .iter()
                     .map(|d| {
-                        // Convertir Weekday a nombre corto en inglés
+                        // convert Weekday to short name in English
                         match d {
                             Weekday::Mon => "Mon",
                             Weekday::Tue => "Tue",
@@ -265,7 +263,7 @@ impl TaskService {
                     .collect::<Vec<_>>()
                     .join(", ");
 
-                // 🆕 Convertir hora UTC a local
+                // convert UTC to local time
                 let utc_time = Utc::now()
                     .with_hour(*hour as u32)
                     .and_then(|t| t.with_minute(*minute as u32))
@@ -275,14 +273,14 @@ impl TaskService {
                 let local_time_str =
                     match timezone_service.format_from_utc_with_timezone(utc_time, user_timezone) {
                         Ok(local_time) => {
-                            // Extraer solo la hora (HH:MM) del formato "YYYY-MM-DD HH:MM"
+                            // extract only time (HH:MM) from "YYYY-MM-DD HH:MM" format
                             if let Some(time_part) = local_time.split_whitespace().nth(1) {
                                 time_part.to_string()
                             } else {
-                                format!("{:02}:{:02}", hour, minute) // Fallback
+                                format!("{:02}:{:02}", hour, minute)
                             }
                         }
-                        Err(_) => format!("{:02}:{:02}", hour, minute), // Fallback a UTC
+                        Err(_) => format!("{:02}:{:02}", hour, minute),
                     };
 
                 format!("Every {} at {}", days_str, local_time_str)
@@ -292,7 +290,6 @@ impl TaskService {
                 hour,
                 minute,
             }) => {
-                // 🆕 También convertir para EveryXDays
                 let utc_time = Utc::now()
                     .with_hour(*hour as u32)
                     .and_then(|t| t.with_minute(*minute as u32))
@@ -320,7 +317,7 @@ impl TaskService {
     pub async fn get_user_tasks_formatted(
         &self,
         user_id: u64,
-        timezone_service: Arc<TimezoneService>, // 🆕 Nuevo parámetro
+        timezone_service: Arc<TimezoneService>,
     ) -> String {
         let tasks = self.get_user_tasks(user_id).await;
 
@@ -328,15 +325,15 @@ impl TaskService {
             return "You don't have any tasks yet!".to_string();
         }
 
-        // 🆕 Obtener la timezone del usuario
+        // get the user's timezone
         let user_timezone = match timezone_service.get_user_timezone(user_id).await {
             Ok(Some(tz)) => tz,
             Ok(None) => {
-                // Si no tiene timezone configurada, mostrar mensaje y usar UTC
-                return "❌ **Primero configura tu zona horaria**\n\nUsa `/timezone` para configurar tu ubicación y ver las horas correctamente.".to_string();
+                // if you do not have timezone configured, show message and use UTC
+                return "❌ **First, setup your timezone**\n\nUse `/timezone` to set your location and see the times correctly".to_string();
             }
             Err(_) => {
-                // En caso de error, usar UTC como fallback
+                // in case of error, use UTC as a fallback
                 "UTC".to_string()
             }
         };
@@ -387,6 +384,7 @@ impl TaskService {
         content
     }
 
+    /// Separate tasks by type (Single or Weekly)
     fn separate_tasks_by_type<'a>(&self, tasks: &'a [Task]) -> (Vec<&'a Task>, Vec<&'a Task>) {
         let mut single_tasks: Vec<&'a Task> =
             tasks.iter().filter(|t| t.recurrence.is_none()).collect();
@@ -398,27 +396,6 @@ impl TaskService {
         recurrent_tasks.sort_by_key(|t| t.id);
 
         (single_tasks, recurrent_tasks)
-    }
-    fn format_recurrence_for_display(&self, recurrence: &Option<Recurrence>) -> String {
-        match recurrence {
-            Some(Recurrence::Weekly { days, hour, minute }) => {
-                let days_str: Vec<String> = days.iter().map(|d| format!("{:?}", d)).collect();
-                format!(
-                    "Weekly on {} at {:02}:{:02}",
-                    days_str.join(", "),
-                    hour,
-                    minute
-                )
-            }
-            Some(Recurrence::EveryXDays {
-                interval,
-                hour,
-                minute,
-            }) => {
-                format!("Every {} days at {:02}:{:02}", interval, hour, minute)
-            }
-            None => "Unknown recurrence".to_string(),
-        }
     }
 
     // === EDIT TASK BUSINESS LOGIC ===
@@ -504,7 +481,7 @@ impl TaskService {
             new_message,
             new_scheduled_time,
             new_recurrence,
-            None, // notification_method remains unchanged
+            None,
         )
     }
 
@@ -553,15 +530,15 @@ impl TaskService {
         input_str: String,
         timezone_service: Arc<TimezoneService>,
     ) -> Result<u64, String> {
-        // 🆕 Validar que el usuario tenga timezone configurada
+        // validate that the user has timezone configured
         let user_timezone = match timezone_service.get_user_timezone(user_id).await {
             Ok(Some(timezone)) => timezone,
             Ok(None) => {
-                return Err("❌ **Primero configura tu zona horaria**\n\nUsa el comando `/timezone` para configurar tu ubicación antes de crear tareas.".to_string());
+                return Err("❌ **First, setup your timezone**\n\nUse the `/timezone` command to set your location before creating tasks".to_string());
             }
             Err(e) => {
                 eprintln!("Error getting user timezone: {:?}", e);
-                return Err("❌ Error al verificar tu zona horaria".to_string());
+                return Err("❌ Error verifying your time zone".to_string());
             }
         };
 
@@ -569,20 +546,20 @@ impl TaskService {
             "single" => {
                 let scheduled_time = Self::parse_single_task_input(&input_str)?;
 
-                // 🆕 Convertir fecha/hora local a UTC
+                // convert local date/time to UTC
                 let local_datetime_str = scheduled_time.format("%Y-%m-%d %H:%M").to_string();
                 let utc_datetime = timezone_service
                     .parse_to_utc_with_timezone(&local_datetime_str, &user_timezone)
-                    .map_err(|e| format!("❌ Error al procesar la fecha/hora: {:?}", e))?;
+                    .map_err(|e| format!("❌ Error processing date/time: {:?}", e))?;
 
-                // 🆕 SOLO PARA SINGLE: Validar que no sea una fecha en el pasado
+                // ONLY FOR SINGLE TASK: validate that it is not a date in the past
                 let is_future = timezone_service
                     .is_future_datetime(&local_datetime_str, user_id)
                     .await
-                    .map_err(|e| format!("❌ Error al validar la fecha: {:?}", e))?;
+                    .map_err(|e| format!("❌ Error validating date: {:?}", e))?;
 
                 if !is_future {
-                    return Err("❌ No puedes programar una tarea en el pasado".to_string());
+                    return Err("❌ You cannot schedule a task in the past".to_string());
                 }
 
                 self.create_single_task(
@@ -597,15 +574,12 @@ impl TaskService {
             "weekly" => {
                 let (days, hour, minute) = Self::parse_weekly_task_input(&input_str)?;
 
-                // 🆕 Para tareas semanales, crear una fecha dummy para la conversión
+                // for weekly tasks, create a dummy date for the conversion
                 let time_str = format!("{:02}:{:02}", hour, minute);
                 let local_datetime_str = format!("1970-01-01 {}", time_str);
                 let utc_datetime = timezone_service
                     .parse_to_utc_with_timezone(&local_datetime_str, &user_timezone)
-                    .map_err(|e| format!("❌ Error al procesar la hora: {:?}", e))?;
-
-                // 🆕 PARA WEEKLY: NO validar si está en el pasado
-                // Las weekly tasks se repiten infinitamente, no importa si la hora ya pasó hoy
+                    .map_err(|e| format!("❌ Error processing hour: {:?}", e))?;
 
                 self.create_weekly_task(
                     user_id,

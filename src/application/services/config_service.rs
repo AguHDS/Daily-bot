@@ -16,7 +16,6 @@ impl ConfigService {
         guild_id: u64,
         channel_id: u64,
     ) -> Result<(), String> {
-        // Validaciones de negocio podrían ir aquí
         if guild_id == 0 {
             return Err("Invalid guild ID".to_string());
         }

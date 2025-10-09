@@ -48,8 +48,8 @@ pub async fn handle_command(
                 .await;
             }
             "timezone" => {
-                // El comando timezone ya se maneja directamente en bot.rs
-                // Esta rama no debería ejecutarse nunca
+                // the timezone command is already handled directly in bot.rs
+                // this block should never be executed
                 println!("Timezone command should be handled directly in bot.rs");
             }
             _ => println!("Command not recognized: {}", command.data.name),
@@ -95,10 +95,10 @@ pub async fn handle_component(
                     .await;
                 return;
             }
-            _ => {} // Continue with other handlers
+            _ => {} // continue with other handlers
         }
 
-        // Handle remove-related components
+        // handle remove-related components
         let remove_ids = [
             "remove_menu_single",
             "remove_menu_weekly",
@@ -117,7 +117,7 @@ pub async fn handle_component(
             return;
         }
 
-        // Handle edit-related components
+        // handle edit-related components
         let edit_ids = ["edit_menu_single", "edit_menu_weekly"];
         if edit_ids.contains(&custom_id) {
             crate::application::commands::edit_task::handle_edit_select(
@@ -129,7 +129,7 @@ pub async fn handle_component(
             return;
         }
 
-        // If we get here, no handler was found
+        // in this block, no handler was found
         println!("Unhandled component with custom_id: {}", custom_id);
     }
 }

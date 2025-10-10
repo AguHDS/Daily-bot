@@ -1,7 +1,7 @@
 use crate::application::services::config_service::ConfigService;
 use serenity::{
     all::{CommandDataOptionValue, CommandInteraction, CreateInteractionResponse},
-    builder::{CreateCommand, CreateInteractionResponseMessage},
+    builder::{CreateCommand, CreateInteractionResponseMessage, EditInteractionResponse},
     prelude::*,
 };
 use std::sync::Arc;
@@ -9,7 +9,7 @@ use std::sync::Arc;
 /// Register the /set_notification_channel command
 pub fn register_set_notification_channel_command() -> CreateCommand {
     CreateCommand::new("set_notification_channel")
-        .description("Set the channel where task notifications will be sent")
+        .description("Set the channel where task notifications will be sent (Admin only)")
         .add_option(
             serenity::builder::CreateCommandOption::new(
                 serenity::model::prelude::CommandOptionType::Channel,
@@ -26,22 +26,53 @@ pub async fn run_set_notification_channel(
     command: &CommandInteraction,
     config_service: &Arc<ConfigService>,
 ) {
+    // Defer response immediately to avoid timeout
+    if let Err(e) = command
+        .create_response(
+            &ctx.http,
+            CreateInteractionResponse::Defer(
+                CreateInteractionResponseMessage::new().ephemeral(true),
+            ),
+        )
+        .await
+    {
+        return;
+    }
+
+    let has_permission = command.member.as_ref().map_or(false, |member| {
+        member
+            .permissions
+            .map_or(false, |perms| perms.administrator())
+    });
+
+    if !has_permission {
+        let _ = command
+            .edit_response(
+                &ctx.http,
+                EditInteractionResponse::new()
+                    .content("❌ You need **administrator** permissions to use this command"),
+            )
+            .await;
+        return;
+    }
+
     let guild_id = match config_service
         .validate_guild_context(command.guild_id.map(|gid| gid.get()))
         .await
     {
         Ok(gid) => gid,
         Err(error) => {
-            let builder =
-                CreateInteractionResponseMessage::default().content(format!("❌ {}", error));
             let _ = command
-                .create_response(&ctx.http, CreateInteractionResponse::Message(builder))
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new().content(format!("❌ {}", error)),
+                )
                 .await;
             return;
         }
     };
 
-    // extract channel ID from command option
+    // Extract channel ID from command option
     let channel_id = match command
         .data
         .options
@@ -52,34 +83,39 @@ pub async fn run_set_notification_channel(
         }) {
         Some(c) => c,
         None => {
-            let builder = CreateInteractionResponseMessage::default()
-                .content("❌ Please provide a valid channel.");
             let _ = command
-                .create_response(&ctx.http, CreateInteractionResponse::Message(builder))
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new().content("❌ Select a valid channel"),
+                )
                 .await;
             return;
         }
     };
 
-    // delegate to ConfigService for business logic
+    // Delegate to ConfigService for business logic
     match config_service
         .set_notification_channel(guild_id, channel_id.get())
         .await
     {
         Ok(()) => {
-            let builder = CreateInteractionResponseMessage::default().content(format!(
-                "✅ Notifications will now be sent in <#{}>",
-                channel_id
-            ));
             let _ = command
-                .create_response(&ctx.http, CreateInteractionResponse::Message(builder))
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new().content(format!(
+                        "✅ Notifications will now be sent in <#{}>",
+                        channel_id
+                    )),
+                )
                 .await;
         }
         Err(error) => {
-            let builder = CreateInteractionResponseMessage::default()
-                .content(format!("❌ Failed to set notification channel: {}", error));
             let _ = command
-                .create_response(&ctx.http, CreateInteractionResponse::Message(builder))
+                .edit_response(
+                    &ctx.http,
+                    EditInteractionResponse::new()
+                        .content(format!("❌ Failed to set notification channel: {}", error)),
+                )
                 .await;
         }
     }

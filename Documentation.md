@@ -21,7 +21,7 @@ The scheduler is an **asynchronous loop** that:
 **File:** `src\application\services\geo_mapping_service.rs`
 Usage: Used by TimezoneService to resolve geographic queries into valid timezone identifiers
 
-### Description
+##### Description
 The Geo-Mapping Service provides a lightweight, in-memory geographic lookup system that maps countries, U.S. states, and Canadian provinces to their corresponding IANA timezone identifiers.
 Exposes several lookup functions and a unified search method that:
 
@@ -31,7 +31,7 @@ Exposes several lookup functions and a unified search method that:
 - Acts as a fallback mechanism for more precise or fuzzy timezone searches performed by the TimezoneManager
 - All UTC timezones here: `src\infrastructure\data\timezones.json`
 
-### Purpose
+##### Purpose
 Provides fast, static geographic-to-timezone resolution without requiring a database
 Simplifies timezone inference for user input such as “Brazil” or “California”
 Enables the TimezoneService to perform combined searches using both static mappings and fuzzy timezone data

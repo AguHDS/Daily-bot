@@ -3,8 +3,9 @@ use crate::application::services::notification_service::NotificationService;
 use crate::application::services::task_service::TaskService;
 use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::repositories::{ConfigRepository, TaskRepository, UserPreferencesRepository};
+use crate::infrastructure::repositories::json_config_repository::JsonConfigRepository;
 use crate::infrastructure::repositories::{
-    config_repository::InMemoryConfigRepository, json_task_repository::JsonTaskRepository,
+    json_task_repository::JsonTaskRepository,
     json_user_preferences_repository::JsonUserPreferencesRepository,
 };
 use crate::infrastructure::scheduler::scheduler_tokio::start_scheduler;
@@ -83,9 +84,8 @@ impl EventHandler for CommandHandler {
         println!("Scheduler started");
     }
 
+    /// Decide what to do depending on user's interaction type with the bot
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        println!("Received interaction: {:?}", interaction.kind());
-
         match &interaction {
             Interaction::Command(command) => match command.data.name.as_str() {
                 "add_task" => {
@@ -156,10 +156,12 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         | GatewayIntents::GUILD_MESSAGE_REACTIONS;
 
     // initialize repositories
-    let task_repo: Arc<dyn TaskRepository> = Arc::new(JsonTaskRepository::new("tasks.json"));
-    let config_repo: Arc<dyn ConfigRepository> = Arc::new(InMemoryConfigRepository::new());
-    let user_prefs_repo: Arc<dyn UserPreferencesRepository> =
-        Arc::new(JsonUserPreferencesRepository::new("user_preferences.json"));
+    let task_repo: Arc<dyn TaskRepository> = Arc::new(JsonTaskRepository::new("./data/tasks.json"));
+    let config_repo: Arc<dyn ConfigRepository> =
+        Arc::new(JsonConfigRepository::new("./data/channel_notification.json"));
+    let user_prefs_repo: Arc<dyn UserPreferencesRepository> = Arc::new(
+        JsonUserPreferencesRepository::new("./data/user_timezone_config.json"),
+    );
 
     // initialize timezone manager
     let timezone_manager = Arc::new(

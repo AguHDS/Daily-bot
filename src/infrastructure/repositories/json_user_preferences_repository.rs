@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tokio::sync::RwLock as AsyncRwLock;
-
 use crate::domain::entities::user_preferences::UserPreferences;
 use crate::domain::repositories::user_preferences_repository::{
     RepositoryError, UserPreferencesRepository,
@@ -25,7 +24,6 @@ impl JsonUserPreferencesRepository {
         let file_path = file_path.into();
 
         let data = Self::load_data(&file_path).unwrap_or_default();
-        println!("💾 [DEBUG] Datos cargados: {} usuarios", data.len());
 
         Self {
             file_path,

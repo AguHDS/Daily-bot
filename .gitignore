@@ -2,8 +2,9 @@
 info-bot.txt
 .vscode
 .env
+channel_notification.json
 tasks.json
-user_preferences.json
+user_timezone_config.json
 # Added by cargo
 #
 # already existing elements were commented out

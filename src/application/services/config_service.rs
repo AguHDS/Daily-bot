@@ -26,6 +26,7 @@ impl ConfigService {
 
         self.config_repo
             .set_notification_channel(guild_id, channel_id);
+
         Ok(())
     }
 

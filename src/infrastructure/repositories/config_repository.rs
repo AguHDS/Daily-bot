@@ -4,11 +4,13 @@ use crate::domain::repositories::ConfigRepository;
 
 /// In-memory implementation of ConfigRepository.
 /// Useful for testing or simple setups without a real database.
+#[allow(dead_code)]
 #[derive(Clone, Default)]
 pub struct InMemoryConfigRepository {
     guild_channels: Arc<RwLock<HashMap<u64, u64>>>,
 }
 
+#[allow(dead_code)]
 impl InMemoryConfigRepository {
     pub fn new() -> Self {
         Self {

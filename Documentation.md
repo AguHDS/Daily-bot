@@ -37,3 +37,9 @@ Simplifies timezone inference for user input such as “Brazil” or “Californ
 Enables the TimezoneService to perform combined searches using both static mappings and fuzzy timezone data
 Serves as a foundation for a future database-backed GeoMappingRepository, allowing migration to MySQL or other persistent storage solutions
 
+### Tasks behavior
+
+Individual tasks: DELETED after notification
+Weekly Tasks (recurring tasks) are automatically RESCHEDULED after their time arrives (they are not deleted)
+
+There's no "completed" status - Implied completeness by deletion/reprogramming

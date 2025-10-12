@@ -26,8 +26,8 @@ pub async fn run_set_notification_channel(
     command: &CommandInteraction,
     config_service: &Arc<ConfigService>,
 ) {
-    // Defer response immediately to avoid timeout
-    if let Err(e) = command
+    // defer response immediately to avoid timeout
+    if let Err(_e) = command
         .create_response(
             &ctx.http,
             CreateInteractionResponse::Defer(

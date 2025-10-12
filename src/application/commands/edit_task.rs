@@ -1,5 +1,7 @@
 use crate::application::services::task_service::TaskService;
+use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::entities::task::Recurrence;
+use chrono::{Timelike, Utc};
 use serenity::all::{
     ActionRowComponent, CommandInteraction, ComponentInteraction, ComponentInteractionDataKind,
     Context, CreateActionRow, CreateCommand, CreateInteractionResponse,
@@ -20,8 +22,28 @@ pub async fn run_edit_task(
     ctx: &Context,
     command: &CommandInteraction,
     task_service: &Arc<TaskService>,
+    timezone_service: &Arc<TimezoneService>, // ← NUEVO
 ) {
     let user_id = command.user.id.get();
+
+    // Verificar timezone del usuario primero
+    let user_timezone = match timezone_service.get_user_timezone(user_id).await {
+        Ok(Some(tz)) => tz,
+        Ok(None) => {
+            let _ = command
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::new()
+                            .content("❌ **First, setup your timezone**\n\nUse `/timezone` to set your location before editing tasks")
+                            .ephemeral(true),
+                    ),
+                )
+                .await;
+            return;
+        }
+        Err(_) => "UTC".to_string(),
+    };
 
     // delegate to TaskService for business logic
     let (single_tasks, weekly_tasks) = task_service.get_user_tasks_for_editing(user_id).await;
@@ -45,7 +67,21 @@ pub async fn run_edit_task(
         let options = single_tasks
             .iter()
             .map(|task| {
-                let label = task_service.format_task_for_display(task);
+                let label = if let Some(dt) = task.scheduled_time {
+                    match timezone_service.format_from_utc_with_timezone(dt, &user_timezone) {
+                        Ok(local_time) => {
+                            format!("#{}: {} (Single on {})", task.id, task.message, local_time)
+                        }
+                        Err(_) => format!(
+                            "#{}: {} (Single on {})",
+                            task.id,
+                            task.message,
+                            dt.format("%Y-%m-%d %H:%M")
+                        ),
+                    }
+                } else {
+                    format!("#{}: {}", task.id, task.message)
+                };
                 CreateSelectMenuOption::new(label, task.id.to_string())
             })
             .collect::<Vec<_>>();
@@ -63,7 +99,39 @@ pub async fn run_edit_task(
         let options = weekly_tasks
             .iter()
             .map(|task| {
-                let label = task_service.format_task_for_display(task);
+                let label =
+                    if let Some(Recurrence::Weekly { days, hour, minute }) = &task.recurrence {
+                        let days_str = days
+                            .iter()
+                            .map(|d| format!("{:?}", d))
+                            .collect::<Vec<_>>()
+                            .join(",");
+
+                        let utc_time = Utc::now()
+                            .with_hour(*hour as u32)
+                            .and_then(|t| t.with_minute(*minute as u32))
+                            .and_then(|t| t.with_second(0))
+                            .unwrap();
+
+                        let time_part = match timezone_service
+                            .format_from_utc_with_timezone(utc_time, &user_timezone)
+                        {
+                            Ok(local_time) => local_time
+                                .split_whitespace()
+                                .nth(1)
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| format!("{:02}:{:02}", hour, minute)),
+                            Err(_) => format!("{:02}:{:02}", hour, minute),
+                        };
+
+                        format!(
+                            "#{}: {} (Weekly on {} at {})",
+                            task.id, task.message, days_str, time_part
+                        )
+                    } else {
+                        format!("#{}: {}", task.id, task.message)
+                    };
+
                 CreateSelectMenuOption::new(label, task.id.to_string())
             })
             .collect::<Vec<_>>();
@@ -94,6 +162,7 @@ pub async fn handle_edit_select(
     ctx: &Context,
     interaction: &ComponentInteraction,
     task_service: &Arc<TaskService>,
+    timezone_service: &Arc<TimezoneService>, // ← NUEVO
 ) {
     let selected_id = match &interaction.data.kind {
         ComponentInteractionDataKind::StringSelect { values } => {
@@ -122,6 +191,24 @@ pub async fn handle_edit_select(
 
     let user_id = interaction.user.id.get();
 
+    // get user's timezone for placeholder
+    let user_timezone = match timezone_service.get_user_timezone(user_id).await {
+        Ok(Some(tz)) => tz,
+        Ok(None) => {
+            let _ = interaction
+                .create_response(
+                    &ctx.http,
+                    CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::default()
+                            .content("❌ Please set your timezone first with `/timezone`"),
+                    ),
+                )
+                .await;
+            return;
+        }
+        Err(_) => "UTC".to_string(),
+    };
+
     // delegate to TaskService for business logic
     let task = match task_service
         .get_task_for_editing(selected_id, user_id)
@@ -147,8 +234,16 @@ pub async fn handle_edit_select(
         .placeholder(&task.message)
         .required(false);
 
-    // delegate to TaskService for placeholder generation
-    let datetime_placeholder = task_service.get_datetime_placeholder(&task);
+    let datetime_placeholder = if let Some(utc_time) = task.scheduled_time {
+        match timezone_service.format_from_utc_with_timezone(utc_time, &user_timezone) {
+            Ok(local_time) => local_time,
+            Err(_) => utc_time.format("%Y-%m-%d %H:%M").to_string(),
+        }
+    } else if task.recurrence.is_some() {
+        "Enter days and hour (Mon,Wed,Fri 14:00)".to_string()
+    } else {
+        "YYYY-MM-DD HH:MM".to_string()
+    };
 
     let datetime_input =
         CreateInputText::new(InputTextStyle::Short, "New date and hour", "new_datetime")
@@ -172,6 +267,7 @@ pub async fn process_edit_task_modal(
     ctx: &Context,
     modal: &ModalInteraction,
     task_service: &Arc<TaskService>,
+    timezone_service: &Arc<TimezoneService>, // ← NUEVO
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if !modal.data.custom_id.starts_with("edit_task_modal_") {
         return Ok(());
@@ -231,7 +327,6 @@ pub async fn process_edit_task_modal(
             return Ok(());
         };
 
-    // delegate to TaskService for business logic
     match task_service
         .edit_task(
             task_id,
@@ -239,10 +334,16 @@ pub async fn process_edit_task_modal(
             new_title,
             new_datetime_input,
             is_weekly_task,
+            timezone_service.clone(),
         )
         .await
     {
         Ok(updated_task) => {
+            let user_timezone = match timezone_service.get_user_timezone(user_id).await {
+                Ok(Some(tz)) => tz,
+                _ => "UTC".to_string(),
+            };
+
             let date_str =
                 if let Some(Recurrence::Weekly { days, hour, minute }) = updated_task.recurrence {
                     let days_str = days
@@ -250,9 +351,28 @@ pub async fn process_edit_task_modal(
                         .map(|d| format!("{:?}", d))
                         .collect::<Vec<_>>()
                         .join(",");
-                    format!("{} at {:02}:{:02}", days_str, hour, minute)
+                    let utc_time = Utc::now()
+                        .with_hour(hour as u32)
+                        .and_then(|t| t.with_minute(minute as u32))
+                        .and_then(|t| t.with_second(0))
+                        .unwrap();
+
+                    match timezone_service.format_from_utc_with_timezone(utc_time, &user_timezone) {
+                        Ok(local_time) => {
+                            let time_part = local_time
+                                .split_whitespace()
+                                .nth(1)
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| format!("{:02}:{:02}", hour, minute));
+                            format!("{} at {}", days_str, time_part)
+                        }
+                        Err(_) => format!("{} at {:02}:{:02}", days_str, hour, minute),
+                    }
                 } else if let Some(dt) = updated_task.scheduled_time {
-                    dt.format("%Y-%m-%d %H:%M").to_string()
+                    match timezone_service.format_from_utc_with_timezone(dt, &user_timezone) {
+                        Ok(local_time) => local_time,
+                        Err(_) => dt.format("%Y-%m-%d %H:%M").to_string(),
+                    }
                 } else {
                     "Date missing".to_string()
                 };

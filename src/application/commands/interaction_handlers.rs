@@ -38,8 +38,13 @@ pub async fn handle_command(
                 crate::application::commands::help::run_help_command(ctx, &command).await;
             }
             "edit_task" => {
-                crate::application::commands::edit_task::run_edit_task(ctx, &command, task_service)
-                    .await;
+                crate::application::commands::edit_task::run_edit_task(
+                    ctx,
+                    &command,
+                    task_service,
+                    timezone_service,
+                )
+                .await;
             }
             "set_notification_channel" => {
                 crate::application::commands::set_notification_channel::run_set_notification_channel(
@@ -49,7 +54,7 @@ pub async fn handle_command(
             }
             "timezone" => {
                 // the timezone command is already handled directly in bot.rs
-                // this block should never be executed
+                // this block should never be triggered
                 println!("Timezone command should be handled directly in bot.rs");
             }
             _ => println!("Command not recognized: {}", command.data.name),
@@ -124,6 +129,7 @@ pub async fn handle_component(
                 ctx,
                 &component,
                 task_service,
+                timezone_service, // ← NUEVO
             )
             .await;
             return;
@@ -139,7 +145,7 @@ pub async fn handle_modal(
     ctx: &Context,
     interaction: &Interaction,
     task_service: &Arc<TaskService>,
-    timezone_service: &Arc<TimezoneService>, // 🆕 Nuevo parámetro
+    timezone_service: &Arc<TimezoneService>,
 ) {
     if let Some(modal) = interaction.clone().modal_submit() {
         let custom_id = modal.data.custom_id.as_str();
@@ -149,6 +155,7 @@ pub async fn handle_modal(
                 ctx,
                 &modal,
                 task_service,
+                timezone_service, // ← NUEVO
             )
             .await
             .unwrap_or_else(|err| {
@@ -161,7 +168,7 @@ pub async fn handle_modal(
                 ctx,
                 &modal,
                 task_service,
-                timezone_service, // 🆕 Pasar timezone_service
+                timezone_service,
             )
             .await
             .unwrap_or_else(|err| {

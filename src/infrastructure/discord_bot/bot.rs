@@ -157,8 +157,9 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
 
     // initialize repositories
     let task_repo: Arc<dyn TaskRepository> = Arc::new(JsonTaskRepository::new("./data/tasks.json"));
-    let config_repo: Arc<dyn ConfigRepository> =
-        Arc::new(JsonConfigRepository::new("./data/channel_notification.json"));
+    let config_repo: Arc<dyn ConfigRepository> = Arc::new(JsonConfigRepository::new(
+        "./data/channel_notification.json",
+    ));
     let user_prefs_repo: Arc<dyn UserPreferencesRepository> = Arc::new(
         JsonUserPreferencesRepository::new("./data/user_timezone_config.json"),
     );
@@ -180,6 +181,7 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         task_repo.clone(),
         config_repo.clone(),
         notification_service.clone(),
+        timezone_service.clone(),
     ));
 
     let handler = CommandHandler {

@@ -12,8 +12,7 @@ impl NotificationService {
         Self
     }
 
-    /// Sends a notification for a task according to its NotificationMethod
-    /// If Channel/Both, uses the configured server notification channel
+    /// Sends a notification for a task according to its NotificationMethod. If Channel/Both, uses the configured server notification channel
     pub async fn send_task_notification(
         &self,
         task: &Task,

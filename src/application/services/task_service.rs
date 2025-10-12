@@ -2,8 +2,10 @@ use crate::application::services::notification_service::NotificationService;
 use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::entities::task::{NotificationMethod, Recurrence, Task};
 use crate::domain::repositories::{ConfigRepository, TaskRepository};
-use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc, Weekday};
+use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
 use std::sync::Arc;
+
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct TaskService {
     task_repo: Arc<dyn TaskRepository>,
@@ -11,6 +13,7 @@ pub struct TaskService {
     config_repo: Arc<dyn ConfigRepository>,
     #[allow(dead_code)]
     notification_service: Arc<NotificationService>,
+    timezone_service: Arc<TimezoneService>,
 }
 
 impl TaskService {
@@ -18,11 +21,13 @@ impl TaskService {
         task_repo: Arc<dyn TaskRepository>,
         config_repo: Arc<dyn ConfigRepository>,
         notification_service: Arc<NotificationService>,
+        timezone_service: Arc<TimezoneService>,
     ) -> Self {
         Self {
             task_repo,
             config_repo,
             notification_service,
+            timezone_service,
         }
     }
 
@@ -235,7 +240,7 @@ impl TaskService {
 
     // === LIST TASKS BUSINESS LOGIC ===
 
-    // Used for correct time formatting 
+    // Used for correct time formatting
     fn format_recurrence_for_display_with_timezone(
         &self,
         recurrence: &Option<Recurrence>,
@@ -433,6 +438,7 @@ impl TaskService {
         new_message: Option<String>,
         new_datetime_input: Option<String>,
         is_weekly_task: bool,
+        timezone_service: Arc<TimezoneService>, // ← NUEVO parámetro
     ) -> Result<Task, String> {
         // validate task exists and belongs to user
         let current_task = self
@@ -442,28 +448,27 @@ impl TaskService {
 
         let (new_scheduled_time, new_recurrence) = if let Some(datetime_input) = new_datetime_input
         {
+            let task_type = if is_weekly_task { "weekly" } else { "single" };
+            let (scheduled_time, recurrence) = timezone_service
+                .parse_task_input(&datetime_input, task_type, user_id)
+                .await?;
+
+            // calculate first ocurrence for weekly tasks
             if is_weekly_task {
-                let (days, hour, minute) = Self::parse_weekly_task_input(&datetime_input)?;
-                let first_time = self
-                    .calculate_first_occurrence(&days, hour, minute)
-                    .ok_or("Could not calculate first occurrence".to_string())?;
+                if let Some(Recurrence::Weekly { days, hour, minute }) = recurrence {
+                    let first_time = self
+                        .calculate_first_occurrence(&days, hour, minute)
+                        .ok_or("Could not calculate first occurrence".to_string())?;
 
-                if first_time < Utc::now() {
-                    return Err("Cannot set a weekly task in the past".to_string());
+                    (
+                        Some(first_time),
+                        Some(Recurrence::Weekly { days, hour, minute }),
+                    )
+                } else {
+                    return Err("Invalid recurrence type".to_string());
                 }
-
-                (
-                    Some(first_time),
-                    Some(Recurrence::Weekly { days, hour, minute }),
-                )
             } else {
-                let scheduled_time = Self::parse_single_task_input(&datetime_input)?;
-
-                if scheduled_time < Utc::now() {
-                    return Err("Cannot set a date in the past".to_string());
-                }
-
-                (Some(scheduled_time), None)
+                (scheduled_time, recurrence)
             }
         } else {
             (current_task.scheduled_time, current_task.recurrence)
@@ -485,39 +490,6 @@ impl TaskService {
         )
     }
 
-    pub fn format_task_for_display(&self, task: &Task) -> String {
-        if let Some(Recurrence::Weekly { days, hour, minute }) = &task.recurrence {
-            let days_str = days
-                .iter()
-                .map(|d| format!("{:?}", d))
-                .collect::<Vec<_>>()
-                .join(",");
-            format!(
-                "#{}: {} (Weekly on {} at {:02}:{:02})",
-                task.id, task.message, days_str, hour, minute
-            )
-        } else if let Some(dt) = task.scheduled_time {
-            format!(
-                "#{}: {} (Single on {})",
-                task.id,
-                task.message,
-                dt.format("%Y-%m-%d %H:%M")
-            )
-        } else {
-            format!("#{}: {}", task.id, task.message)
-        }
-    }
-
-    pub fn get_datetime_placeholder(&self, task: &Task) -> String {
-        if task.recurrence.is_some() {
-            "Enter days and hour (Mon,Wed,Fri 14:00)".to_string()
-        } else {
-            task.scheduled_time
-                .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
-                .unwrap_or_else(|| "YYYY-MM-DD HH:MM".to_string())
-        }
-    }
-
     // === COMMAND HANDLERS (for interaction_handlers) ===
 
     pub async fn handle_add_task_modal(
@@ -530,89 +502,38 @@ impl TaskService {
         input_str: String,
         timezone_service: Arc<TimezoneService>,
     ) -> Result<u64, String> {
-        // validate that the user has timezone configured
-        let user_timezone = match timezone_service.get_user_timezone(user_id).await {
-            Ok(Some(timezone)) => timezone,
-            Ok(None) => {
-                return Err("❌ **First, setup your timezone**\n\nUse the `/timezone` command to set your location before creating tasks".to_string());
-            }
-            Err(e) => {
-                eprintln!("Error getting user timezone: {:?}", e);
-                return Err("❌ Error verifying your time zone".to_string());
-            }
-        };
+        let (scheduled_time, recurrence) = timezone_service
+            .parse_task_input(&input_str, task_type, user_id)
+            .await?;
 
         match task_type {
             "single" => {
-                let scheduled_time = Self::parse_single_task_input(&input_str)?;
-
-                // convert local date/time to UTC
-                let local_datetime_str = scheduled_time.format("%Y-%m-%d %H:%M").to_string();
-                let utc_datetime = timezone_service
-                    .parse_to_utc_with_timezone(&local_datetime_str, &user_timezone)
-                    .map_err(|e| format!("❌ Error processing date/time: {:?}", e))?;
-
-                // ONLY FOR SINGLE TASK: validate that it is not a date in the past
-                let is_future = timezone_service
-                    .is_future_datetime(&local_datetime_str, user_id)
-                    .await
-                    .map_err(|e| format!("❌ Error validating date: {:?}", e))?;
-
-                if !is_future {
-                    return Err("❌ You cannot schedule a task in the past".to_string());
-                }
-
                 self.create_single_task(
                     user_id,
                     guild_id,
                     message,
-                    utc_datetime,
+                    scheduled_time.unwrap(),
                     notification_method,
                 )
                 .await
             }
             "weekly" => {
-                let (days, hour, minute) = Self::parse_weekly_task_input(&input_str)?;
-
-                // for weekly tasks, create a dummy date for the conversion
-                let time_str = format!("{:02}:{:02}", hour, minute);
-                let local_datetime_str = format!("1970-01-01 {}", time_str);
-                let utc_datetime = timezone_service
-                    .parse_to_utc_with_timezone(&local_datetime_str, &user_timezone)
-                    .map_err(|e| format!("❌ Error processing hour: {:?}", e))?;
-
-                self.create_weekly_task(
-                    user_id,
-                    guild_id,
-                    message,
-                    days,
-                    utc_datetime.time().hour() as u8,
-                    utc_datetime.time().minute() as u8,
-                    notification_method,
-                )
-                .await
+                if let Some(Recurrence::Weekly { days, hour, minute }) = recurrence {
+                    self.create_weekly_task(
+                        user_id,
+                        guild_id,
+                        message,
+                        days,
+                        hour,
+                        minute,
+                        notification_method,
+                    )
+                    .await
+                } else {
+                    Err("Invalid recurrence type".to_string())
+                }
             }
             _ => Err(format!("Unknown task type: {}", task_type)),
         }
-    }
-
-    // === PARSING UTILITIES ===
-
-    fn parse_single_task_input(input_str: &str) -> Result<DateTime<Utc>, String> {
-        use chrono::NaiveDateTime;
-
-        let naive_dt = NaiveDateTime::parse_from_str(input_str, "%Y-%m-%d %H:%M")
-            .map_err(|_| "Failed to parse date/time. Use format: YYYY-MM-DD HH:MM".to_string())?;
-
-        Ok(Utc.from_utc_datetime(&naive_dt))
-    }
-
-    fn parse_weekly_task_input(input_str: &str) -> Result<(Vec<Weekday>, u8, u8), String> {
-        use crate::application::commands::utils::parse_weekly_input;
-
-        let (days, hour, minute, _) = parse_weekly_input(input_str)
-            .map_err(|e| format!("Failed to parse weekly input: {}", e))?;
-
-        Ok((days, hour, minute))
     }
 }

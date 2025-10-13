@@ -7,7 +7,8 @@ pub trait TaskRepository: Send + Sync {
     fn edit_task(
         &self,
         task_id: u64,
-        new_message: Option<String>,
+        new_title: Option<String>,
+        new_description: Option<String>,  
         new_scheduled_time: Option<DateTime<Utc>>,
         new_recurrence: Option<Recurrence>,
         new_notification_method: Option<NotificationMethod>,

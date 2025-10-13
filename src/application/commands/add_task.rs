@@ -19,7 +19,7 @@ pub fn register_add_task_command() -> CreateCommand {
     CreateCommand::new("add_task")
         .description("Add a new task")
         .add_option(
-            CreateCommandOption::new(CommandOptionType::String, "message", "Task description")
+            CreateCommandOption::new(CommandOptionType::String, "title", "Task title")
                 .required(true),
         )
         .add_option(
@@ -43,6 +43,14 @@ pub fn register_add_task_command() -> CreateCommand {
             .add_string_choice("Both", "Both")
             .required(true),
         )
+        .add_option(
+            CreateCommandOption::new(
+                CommandOptionType::String,
+                "description",
+                "Task description (optional)",
+            )
+            .required(false),
+        )
 }
 
 pub async fn run_add_task(
@@ -53,13 +61,13 @@ pub async fn run_add_task(
 ) {
     let options = &command.data.options;
 
-    // extract message
-    let message = match get_string_option(options, 0) {
-        Some(msg) => msg,
+    // extract title (required) - usar índice 0 (puede ser "message" o "title")
+    let title = match get_string_option(options, 0) {
+        Some(title) => title,
         None => {
             let response = CreateInteractionResponse::Message(
                 CreateInteractionResponseMessage::default()
-                    .content("❌ Missing or invalid message")
+                    .content("❌ Missing or invalid title")
                     .ephemeral(true),
             );
             let _ = command.create_response(&ctx.http, response).await;
@@ -67,11 +75,22 @@ pub async fn run_add_task(
         }
     };
 
-    // extract task type and notification method
+    let description = get_string_option(options, 1);
+
     let task_type = get_string_option(options, 1).unwrap_or("single".to_string());
     let notification_method = get_string_option(options, 2)
         .map(|s| parse_notification_method(&s))
         .unwrap_or(NotificationMethod::DM);
+
+    if task_type != "single" && task_type != "weekly" {
+        let response = CreateInteractionResponse::Message(
+            CreateInteractionResponseMessage::default()
+                .content("❌ Invalid task type. Must be 'single' or 'weekly'")
+                .ephemeral(true),
+        );
+        let _ = command.create_response(&ctx.http, response).await;
+        return;
+    }
 
     // get user's timezone to display in the placeholder
     let user_id = command.user.id.get();
@@ -83,15 +102,14 @@ pub async fn run_add_task(
         _ => "".to_string(),
     };
 
-    // create input text depending on task type
-    let input_text = if task_type == "weekly" {
+    let datetime_input = if task_type == "weekly" {
         CreateInputText::new(
             InputTextStyle::Short,
             "Enter Days & Hour (Mon,Wed,Fri HH:MM)",
             "weekly_datetime",
         )
         .required(true)
-        .placeholder(format!("{}", ""))
+        .placeholder("Example: Mon,Wed,Fri 14:30")
     } else {
         CreateInputText::new(
             InputTextStyle::Short,
@@ -102,17 +120,28 @@ pub async fn run_add_task(
         .placeholder(format!("{}", user_timezone_info))
     };
 
-    let action_row = CreateActionRow::InputText(input_text);
+    let description_input = CreateInputText::new(
+        InputTextStyle::Paragraph,
+        "Task Description (optional)",
+        "task_description",
+    )
+    .required(false)
+    .placeholder("Add more details about your task...")
+    .value(description.unwrap_or_default()); // pre-fill with description from command if provided
+
+    let datetime_row = CreateActionRow::InputText(datetime_input);
+    let description_row = CreateActionRow::InputText(description_input);
 
     // pass task data in custom_id for modal processing
     let modal_custom_id = format!(
         "{}_task_modal|{}|{}",
         task_type,
-        message.replace('|', "-"), // sanitize to avoid parsing issues
+        title.replace('|', "-"), // sanitize to avoid parsing issues
         notification_method_as_str(&notification_method)
     );
 
-    let modal = CreateModal::new(&modal_custom_id, "📅 Create Task").components(vec![action_row]);
+    let modal = CreateModal::new(&modal_custom_id, "📅 Create Task")
+        .components(vec![datetime_row, description_row]);
 
     if let Err(err) = command
         .create_response(&ctx.http, CreateInteractionResponse::Modal(modal))
@@ -129,18 +158,18 @@ pub async fn process_task_modal_input(
     task_service: &Arc<TaskService>,
     timezone_service: &Arc<TimezoneService>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // parse custom_id: "single_task_modal|message|NotificationMethod"
+    // parse custom_id: "single_task_modal|title|NotificationMethod"
     let parts: Vec<&str> = modal.data.custom_id.split('|').collect();
     if parts.len() != 3 {
         return Err("Invalid modal custom_id format".into());
     }
 
     let task_type = parts[0].strip_suffix("_task_modal").unwrap_or("single");
-    let message = parts[1].to_string();
+    let title = parts[1].to_string();
     let notification_method = parse_notification_method(parts[2]);
 
-    // extract user input from modal
-    let input_str = modal
+    // extract both inputs from modal
+    let datetime_input = modal
         .data
         .components
         .get(0)
@@ -149,7 +178,18 @@ pub async fn process_task_modal_input(
             ActionRowComponent::InputText(input) => input.value.clone(),
             _ => None,
         })
-        .ok_or("No input value found")?;
+        .ok_or("No datetime input found")?;
+
+    let description_input = modal
+        .data
+        .components
+        .get(1)
+        .and_then(|row| row.components.get(0))
+        .and_then(|c| match c {
+            ActionRowComponent::InputText(input) => input.value.clone(),
+            _ => None,
+        })
+        .unwrap_or_default(); // description optional
 
     // get user and guild info from modal
     let user_id = modal.user.id.get();
@@ -173,7 +213,7 @@ pub async fn process_task_modal_input(
             eprintln!("Error getting user timezone: {:?}", e);
             let response = CreateInteractionResponse::Message(
                 CreateInteractionResponseMessage::default()
-                    .content("❌ Error veryfing timezone")
+                    .content("❌ Error verifying timezone")
                     .ephemeral(true),
             );
             modal.create_response(&ctx.http, response).await?;
@@ -181,15 +221,16 @@ pub async fn process_task_modal_input(
         }
     }
 
-    // delegate to TaskService for business logic
+    // delegate to TaskService for business logic - now passing title and description
     match task_service
         .handle_add_task_modal(
             user_id,
             guild_id,
             task_type,
-            message,
+            title,
+            description_input,
             notification_method,
-            input_str,
+            datetime_input,
             timezone_service.clone(),
         )
         .await

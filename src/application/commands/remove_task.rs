@@ -27,7 +27,7 @@ pub async fn run_remove_task(
                 let options: Vec<_> = single_tasks
                     .iter()
                     .map(|task| {
-                        let label = format!("#{}: {}", task.id, task.message);
+                        let label = format!("#{}: {}", task.id, task.title);
                         CreateSelectMenuOption::new(label, task.id.to_string())
                     })
                     .collect();
@@ -48,7 +48,7 @@ pub async fn run_remove_task(
                 let options: Vec<_> = weekly_tasks
                     .iter()
                     .map(|task| {
-                        let label = format!("#{}: {}", task.id, task.message);
+                        let label = format!("#{}: {}", task.id, task.title);
                         CreateSelectMenuOption::new(label, task.id.to_string())
                     })
                     .collect();
@@ -209,7 +209,7 @@ pub async fn handle_remove_select(
                                 &ctx.http,
                                 CreateInteractionResponse::Message(
                                     CreateInteractionResponseMessage::default()
-                                        .content(format!("❌ Error: {}", error))
+                                        .content(format!("Error: {}", error))
                                         .components(vec![])
                                         .ephemeral(true),
                                 ),

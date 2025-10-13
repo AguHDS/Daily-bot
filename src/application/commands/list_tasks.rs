@@ -15,19 +15,19 @@ pub async fn run_list_tasks(
     ctx: &Context,
     command: &CommandInteraction,
     task_service: &Arc<TaskService>,
-    timezone_service: &Arc<TimezoneService>, // 🆕 Nuevo parámetro
+    timezone_service: &Arc<TimezoneService>,
 ) {
     let user_id: u64 = command.user.id.into();
 
-    // pass timezone_service to format method
-    let content = task_service
-        .get_user_tasks_formatted(user_id, timezone_service.clone())
+    // Obtener las tareas formateadas como embed
+    let embed_response = task_service
+        .get_user_tasks_embed(user_id, timezone_service.clone())
         .await;
 
-    // send response
+    // Crear respuesta con embed
     let builder = CreateInteractionResponse::Message(
         CreateInteractionResponseMessage::default()
-            .content(content)
+            .add_embed(embed_response)
             .ephemeral(true),
     );
 

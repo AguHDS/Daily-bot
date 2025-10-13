@@ -22,11 +22,11 @@ pub async fn run_edit_task(
     ctx: &Context,
     command: &CommandInteraction,
     task_service: &Arc<TaskService>,
-    timezone_service: &Arc<TimezoneService>, // ← NUEVO
+    timezone_service: &Arc<TimezoneService>,
 ) {
     let user_id = command.user.id.get();
 
-    // Verificar timezone del usuario primero
+    // verify user's timezone first
     let user_timezone = match timezone_service.get_user_timezone(user_id).await {
         Ok(Some(tz)) => tz,
         Ok(None) => {
@@ -67,20 +67,26 @@ pub async fn run_edit_task(
         let options = single_tasks
             .iter()
             .map(|task| {
+                let display_title = if task.title.len() > 30 {
+                    format!("{}...", &task.title[..30])
+                } else {
+                    task.title.clone()
+                };
+
                 let label = if let Some(dt) = task.scheduled_time {
                     match timezone_service.format_from_utc_with_timezone(dt, &user_timezone) {
                         Ok(local_time) => {
-                            format!("#{}: {} (Single on {})", task.id, task.message, local_time)
+                            format!("#{}: {} (Single on {})", task.id, display_title, local_time)
                         }
                         Err(_) => format!(
                             "#{}: {} (Single on {})",
                             task.id,
-                            task.message,
+                            display_title,
                             dt.format("%Y-%m-%d %H:%M")
                         ),
                     }
                 } else {
-                    format!("#{}: {}", task.id, task.message)
+                    format!("#{}: {}", task.id, display_title)
                 };
                 CreateSelectMenuOption::new(label, task.id.to_string())
             })
@@ -99,6 +105,12 @@ pub async fn run_edit_task(
         let options = weekly_tasks
             .iter()
             .map(|task| {
+                let display_title = if task.title.len() > 30 {
+                    format!("{}...", &task.title[..30])
+                } else {
+                    task.title.clone()
+                };
+
                 let label =
                     if let Some(Recurrence::Weekly { days, hour, minute }) = &task.recurrence {
                         let days_str = days
@@ -126,10 +138,10 @@ pub async fn run_edit_task(
 
                         format!(
                             "#{}: {} (Weekly on {} at {})",
-                            task.id, task.message, days_str, time_part
+                            task.id, display_title, days_str, time_part
                         )
                     } else {
-                        format!("#{}: {}", task.id, task.message)
+                        format!("#{}: {}", task.id, display_title)
                     };
 
                 CreateSelectMenuOption::new(label, task.id.to_string())
@@ -162,7 +174,7 @@ pub async fn handle_edit_select(
     ctx: &Context,
     interaction: &ComponentInteraction,
     task_service: &Arc<TaskService>,
-    timezone_service: &Arc<TimezoneService>, // ← NUEVO
+    timezone_service: &Arc<TimezoneService>,
 ) {
     let selected_id = match &interaction.data.kind {
         ComponentInteractionDataKind::StringSelect { values } => {
@@ -231,16 +243,55 @@ pub async fn handle_edit_select(
     };
 
     let title_input = CreateInputText::new(InputTextStyle::Short, "New title", "new_title")
-        .placeholder(&task.message)
+        .placeholder(&task.title)
         .required(false);
 
-    let datetime_placeholder = if let Some(utc_time) = task.scheduled_time {
+    let description_input = CreateInputText::new(
+        InputTextStyle::Paragraph,
+        "New description (optional)",
+        "new_description",
+    )
+    .placeholder(
+        task.description
+            .as_deref()
+            .unwrap_or("Add task description..."),
+    )
+    .required(false);
+
+    let datetime_placeholder = if task.recurrence.is_some() {
+        if let Some(Recurrence::Weekly { days, hour, minute }) = &task.recurrence {
+            let days_str = days
+                .iter()
+                .map(|d| format!("{:?}", d))
+                .collect::<Vec<_>>()
+                .join(",");
+
+            let utc_time = Utc::now()
+                .with_hour(*hour as u32)
+                .and_then(|t| t.with_minute(*minute as u32))
+                .and_then(|t| t.with_second(0))
+                .unwrap();
+
+            match timezone_service.format_from_utc_with_timezone(utc_time, &user_timezone) {
+                Ok(local_time) => {
+                    let time_part = local_time
+                        .split_whitespace()
+                        .nth(1)
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| format!("{:02}:{:02}", hour, minute));
+
+                    format!("{} {}", days_str, time_part)
+                }
+                Err(_) => format!("{} {:02}:{:02}", days_str, hour, minute),
+            }
+        } else {
+            "Enter days and hour (Mon,Wed,Fri 14:00)".to_string()
+        }
+    } else if let Some(utc_time) = task.scheduled_time {
         match timezone_service.format_from_utc_with_timezone(utc_time, &user_timezone) {
             Ok(local_time) => local_time,
             Err(_) => utc_time.format("%Y-%m-%d %H:%M").to_string(),
         }
-    } else if task.recurrence.is_some() {
-        "Enter days and hour (Mon,Wed,Fri 14:00)".to_string()
     } else {
         "YYYY-MM-DD HH:MM".to_string()
     };
@@ -254,6 +305,7 @@ pub async fn handle_edit_select(
 
     let modal = CreateModal::new(&modal_id, "Edit task").components(vec![
         CreateActionRow::InputText(title_input),
+        CreateActionRow::InputText(description_input),
         CreateActionRow::InputText(datetime_input),
     ]);
 
@@ -267,7 +319,7 @@ pub async fn process_edit_task_modal(
     ctx: &Context,
     modal: &ModalInteraction,
     task_service: &Arc<TaskService>,
-    timezone_service: &Arc<TimezoneService>, // ← NUEVO
+    timezone_service: &Arc<TimezoneService>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if !modal.data.custom_id.starts_with("edit_task_modal_") {
         return Ok(());
@@ -284,6 +336,7 @@ pub async fn process_edit_task_modal(
 
     // extract modal inputs
     let mut new_title: Option<String> = None;
+    let mut new_description: Option<String> = None;
     let mut new_datetime_input: Option<String> = None;
 
     for row in &modal.data.components {
@@ -294,6 +347,15 @@ pub async fn process_edit_task_modal(
                         if let Some(val) = &input.value {
                             if !val.trim().is_empty() {
                                 new_title = Some(val.clone());
+                            }
+                        }
+                    }
+                    "new_description" => {
+                        if let Some(desc) = &input.value {
+                            if desc.trim().is_empty() {
+                                new_description = Some("".to_string());
+                            } else {
+                                new_description = Some(desc.clone());
                             }
                         }
                     }
@@ -332,6 +394,7 @@ pub async fn process_edit_task_modal(
             task_id,
             user_id,
             new_title,
+            new_description,
             new_datetime_input,
             is_weekly_task,
             timezone_service.clone(),
@@ -377,9 +440,19 @@ pub async fn process_edit_task_modal(
                     "Date missing".to_string()
                 };
 
+            let description_display = if let Some(desc) = &updated_task.description {
+                if !desc.trim().is_empty() {
+                    format!("\n**Description:** {}", desc)
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            };
+
             let content = format!(
-                "✅ Task **#{}** updated:\n**Title:** {}\n**Date:** {}",
-                updated_task.id, updated_task.message, date_str
+                "✅ Task **#{}** updated:\n**Title:** {}{}\n**Date:** {}",
+                updated_task.id, updated_task.title, description_display, date_str
             );
 
             let _ = modal

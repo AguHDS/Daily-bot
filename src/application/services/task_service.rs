@@ -3,6 +3,8 @@ use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::entities::task::{NotificationMethod, Recurrence, Task};
 use crate::domain::repositories::{ConfigRepository, TaskRepository};
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
+use serenity::builder::{CreateEmbed, CreateEmbedFooter};
+use serenity::model::colour::Color;
 use std::sync::Arc;
 
 #[allow(dead_code)]
@@ -78,7 +80,8 @@ impl TaskService {
         &self,
         user_id: u64,
         guild_id: u64,
-        message: String,
+        title: String,
+        description: String,
         scheduled_time: DateTime<Utc>,
         notification_method: NotificationMethod,
     ) -> Result<u64, String> {
@@ -86,15 +89,16 @@ impl TaskService {
             return Err("Cannot create a task in the past".to_string());
         }
 
-        if message.trim().is_empty() {
-            return Err("Task message cannot be empty".to_string());
+        if title.trim().is_empty() {
+            return Err("Task title cannot be empty".to_string());
         }
 
         let task = Task::new(
-            0, // ID is assigned in repo
+            0, // id is assigned in the repo
             user_id,
             guild_id,
-            message,
+            title,
+            Some(description),
             Some(scheduled_time),
             None,
             notification_method,
@@ -109,14 +113,15 @@ impl TaskService {
         &self,
         user_id: u64,
         guild_id: u64,
-        message: String,
+        title: String,
+        description: String,
         days: Vec<Weekday>,
         hour: u8,
         minute: u8,
         notification_method: NotificationMethod,
     ) -> Result<u64, String> {
-        if message.trim().is_empty() {
-            return Err("Task message cannot be empty".to_string());
+        if title.trim().is_empty() {
+            return Err("Task title cannot be empty".to_string());
         }
 
         if days.is_empty() {
@@ -142,7 +147,8 @@ impl TaskService {
             0,
             user_id,
             guild_id,
-            message,
+            title,
+            Some(description),
             Some(first_time),
             recurrence,
             notification_method,
@@ -319,74 +325,127 @@ impl TaskService {
         }
     }
 
-    pub async fn get_user_tasks_formatted(
+    // Get user tasks to display in /list_tasks
+    pub async fn get_user_tasks_embed(
         &self,
         user_id: u64,
         timezone_service: Arc<TimezoneService>,
-    ) -> String {
+    ) -> CreateEmbed {
         let tasks = self.get_user_tasks(user_id).await;
 
         if tasks.is_empty() {
-            return "You don't have any tasks yet!".to_string();
+            return CreateEmbed::default()
+                .title("📝 Your Tasks")
+                .description("You don't have any tasks yet!")
+                .color(Color::DARK_GREY)
+                .footer(CreateEmbedFooter::new(
+                    "Use /add_task to create your first task",
+                ));
         }
 
-        // get the user's timezone
+        // verify user's timezone
         let user_timezone = match timezone_service.get_user_timezone(user_id).await {
             Ok(Some(tz)) => tz,
             Ok(None) => {
-                // if you do not have timezone configured, show message and use UTC
-                return "❌ **First, setup your timezone**\n\nUse `/timezone` to set your location and see the times correctly".to_string();
+                return CreateEmbed::default()
+                .title("❌ Timezone Required")
+                .description("Please set your timezone first using `/timezone` to see task times correctly")
+                .color(Color::RED)
+                .footer(CreateEmbedFooter::new(
+                    "This ensures all times are displayed in your local timezone",
+                ));
             }
-            Err(_) => {
-                // in case of error, use UTC as a fallback
-                "UTC".to_string()
-            }
+            Err(_) => "UTC".to_string(),
         };
 
-        // separate single and recurrent tasks
+        // separate tasks
         let (single_tasks, recurrent_tasks) = self.separate_tasks_by_type(&tasks);
 
-        let mut content = String::from("📝 **Your tasks:**\n\n");
+        let mut embed = CreateEmbed::default()
+            .title("📝 Your Tasks")
+            .description(format!(
+                "You have **{}** task{} in total",
+                single_tasks.len() + recurrent_tasks.len(),
+                if single_tasks.len() + recurrent_tasks.len() != 1 {
+                    "s"
+                } else {
+                    ""
+                }
+            ))
+            .color(Color::BLUE);
 
+        // single tasks
         if !single_tasks.is_empty() {
-            content.push_str("**Single Tasks:**\n");
+            let mut single_tasks_field = String::new();
+
             for task in &single_tasks {
                 let scheduled_str =
                     task.scheduled_time
-                        .map_or("Not scheduled".to_string(), |utc_dt| {
-                            // 🆕 Convertir UTC a timezone local
-                            match timezone_service
+                        .map_or(
+                            "⏰ Not scheduled".to_string(),
+                            |utc_dt| match timezone_service
                                 .format_from_utc_with_timezone(utc_dt, &user_timezone)
                             {
-                                Ok(local_time) => local_time,
-                                Err(_) => utc_dt.format("%Y-%m-%d at %H:%M").to_string() + " (UTC)", // Fallback
-                            }
-                        });
-                content.push_str(&format!(
-                    "**#{}**: {} — {}\n",
-                    task.id, task.message, scheduled_str
-                ));
+                                Ok(local_time) => format!("{}", local_time),
+                                Err(_) => format!("🕐 {} (UTC)", utc_dt.format("%Y-%m-%d %H:%M")),
+                            },
+                        );
+
+                single_tasks_field.push_str(&format!("**#{}** • {}\n", task.id, task.title));
+
+                if let Some(desc) = &task.description {
+                    if !desc.trim().is_empty() {
+                        single_tasks_field.push_str(&format!("   *{}*\n", desc));
+                    }
+                }
+
+                single_tasks_field.push_str(&format!("   {}\n\n", scheduled_str));
             }
-            content.push('\n');
+
+            embed = embed.field(
+                format!("Single Tasks ({})", single_tasks.len()),
+                single_tasks_field,
+                false,
+            );
         }
 
-        // show recurrent(weekly) tasks
+        // weekly tasks
         if !recurrent_tasks.is_empty() {
-            content.push_str("**Recurrent Tasks:**\n");
+            let mut recurrent_tasks_field = String::new();
+
             for task in &recurrent_tasks {
                 let recurrence_str = self.format_recurrence_for_display_with_timezone(
                     &task.recurrence,
                     &timezone_service,
                     &user_timezone,
-                ); // 🆕 Método actualizado
-                content.push_str(&format!(
-                    "**#{}**: {} — {}\n",
-                    task.id, task.message, recurrence_str
-                ));
+                );
+
+                recurrent_tasks_field.push_str(&format!("**#{}** • {}\n", task.id, task.title));
+
+                if let Some(desc) = &task.description {
+                    if !desc.trim().is_empty() {
+                        recurrent_tasks_field.push_str(&format!("   *{}*\n", desc));
+                    }
+                }
+
+                recurrent_tasks_field.push_str(&format!("   {}\n\n", recurrence_str));
             }
+
+            embed = embed.field(
+                format!("Weekly Tasks ({})", recurrent_tasks.len()),
+                recurrent_tasks_field,
+                false,
+            );
         }
 
-        content
+        embed = embed
+            .footer(CreateEmbedFooter::new(format!(
+                "User: {} • Timezone: {}",
+                user_id, user_timezone
+            )))
+            .timestamp(Utc::now());
+
+        embed
     }
 
     /// Separate tasks by type (Single or Weekly)
@@ -435,10 +494,11 @@ impl TaskService {
         &self,
         task_id: u64,
         user_id: u64,
-        new_message: Option<String>,
+        new_title: Option<String>,
+        new_description: Option<String>,
         new_datetime_input: Option<String>,
         is_weekly_task: bool,
-        timezone_service: Arc<TimezoneService>, // ← NUEVO parámetro
+        timezone_service: Arc<TimezoneService>,
     ) -> Result<Task, String> {
         // validate task exists and belongs to user
         let current_task = self
@@ -474,16 +534,24 @@ impl TaskService {
             (current_task.scheduled_time, current_task.recurrence)
         };
 
-        // validates message is not empty if is added a new one
-        if let Some(ref message) = new_message {
-            if message.trim().is_empty() {
+        // validates title is not empty if a new one is provided
+        if let Some(ref title) = new_title {
+            if title.trim().is_empty() {
                 return Err("Task title cannot be empty".to_string());
             }
         }
 
+        // handle description
+        let final_description = match new_description {
+            Some(desc) if desc.trim().is_empty() => Some("".to_string()), // clear description
+            Some(desc) => Some(desc), // update with new description
+            None => None,             // don't change existing description
+        };
+
         self.task_repo.edit_task(
             task_id,
-            new_message,
+            new_title,
+            final_description,
             new_scheduled_time,
             new_recurrence,
             None,
@@ -497,11 +565,16 @@ impl TaskService {
         user_id: u64,
         guild_id: u64,
         task_type: &str,
-        message: String,
+        title: String,
+        description: String,
         notification_method: NotificationMethod,
         input_str: String,
         timezone_service: Arc<TimezoneService>,
     ) -> Result<u64, String> {
+        println!(
+            "DEBUG handle_add_task_modal - task_type: '{}', input_str: '{}'",
+            task_type, input_str
+        );
         let (scheduled_time, recurrence) = timezone_service
             .parse_task_input(&input_str, task_type, user_id)
             .await?;
@@ -511,7 +584,8 @@ impl TaskService {
                 self.create_single_task(
                     user_id,
                     guild_id,
-                    message,
+                    title,
+                    description,
                     scheduled_time.unwrap(),
                     notification_method,
                 )
@@ -522,7 +596,8 @@ impl TaskService {
                     self.create_weekly_task(
                         user_id,
                         guild_id,
-                        message,
+                        title,
+                        description,
                         days,
                         hour,
                         minute,

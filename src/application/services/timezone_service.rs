@@ -208,7 +208,7 @@ impl TimezoneService {
                     .map_err(|e| format!("Error validating date: {e:?}"))?;
 
                 if !is_future {
-                    return Err("❌ You cannot schedule a task in the past".into());
+                    return Err("You cannot schedule a task in the past".into());
                 }
 
                 Ok((Some(utc_datetime), None))

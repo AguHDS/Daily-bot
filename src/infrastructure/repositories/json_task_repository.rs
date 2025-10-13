@@ -1,4 +1,4 @@
-use crate::domain::entities::task::{Task, Recurrence, NotificationMethod};
+use crate::domain::entities::task::{NotificationMethod, Recurrence, Task};
 use crate::domain::repositories::TaskRepository;
 use crate::infrastructure::repositories::json_storage;
 use chrono::{DateTime, Utc};
@@ -12,6 +12,7 @@ pub struct JsonTaskRepository {
     next_id: Arc<Mutex<u64>>,
     file_path: String,
 }
+
 impl JsonTaskRepository {
     pub fn new(file_path: &str) -> Self {
         let repo = Self {
@@ -28,7 +29,7 @@ impl JsonTaskRepository {
             let tasks = self.tasks.lock().unwrap();
             tasks.values().cloned().collect()
         };
-        json_storage::save_tasks(&all_tasks, &self.file_path) 
+        json_storage::save_tasks(&all_tasks, &self.file_path)
     }
 
     fn load_all(&self) -> std::io::Result<()> {
@@ -67,7 +68,8 @@ impl TaskRepository for JsonTaskRepository {
     fn edit_task(
         &self,
         task_id: u64,
-        new_message: Option<String>,
+        new_title: Option<String>,
+        new_description: Option<String>,
         new_scheduled_time: Option<DateTime<Utc>>,
         new_recurrence: Option<Recurrence>,
         new_notification_method: Option<NotificationMethod>,
@@ -78,11 +80,16 @@ impl TaskRepository for JsonTaskRepository {
                 .get_mut(&task_id)
                 .ok_or_else(|| format!("Couldn't find task with ID {}", task_id))?;
 
-            if let Some(msg) = new_message {
-                if msg.trim().is_empty() {
-                    return Err("Task title can not be empty".to_string());
+            // updates
+            if let Some(title) = new_title {
+                if title.trim().is_empty() {
+                    return Err("Task title cannot be empty".to_string());
                 }
-                task.message = msg;
+                task.title = title;
+            }
+
+            if let Some(description) = new_description {
+                task.description = Some(description);
             }
             if let Some(new_time) = new_scheduled_time {
                 task.scheduled_time = Some(new_time);

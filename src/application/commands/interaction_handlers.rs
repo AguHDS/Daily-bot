@@ -129,7 +129,7 @@ pub async fn handle_component(
                 ctx,
                 &component,
                 task_service,
-                timezone_service, // ← NUEVO
+                timezone_service,
             )
             .await;
             return;
@@ -155,7 +155,7 @@ pub async fn handle_modal(
                 ctx,
                 &modal,
                 task_service,
-                timezone_service, // ← NUEVO
+                timezone_service,
             )
             .await
             .unwrap_or_else(|err| {

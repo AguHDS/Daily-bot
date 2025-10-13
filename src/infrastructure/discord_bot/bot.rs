@@ -26,52 +26,25 @@ impl EventHandler for CommandHandler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         println!("Bot ready as {}", ready.user.name);
 
-        // Register commands
+        // register commands
         for guild_status in ready.guilds {
             let guild_id: GuildId = guild_status.id;
 
-            let _ = guild_id
-                .create_command(
-                    &ctx.http,
-                    crate::application::commands::register_add_task_command(),
-                )
-                .await;
-            let _ = guild_id
-                .create_command(
-                    &ctx.http,
-                    crate::application::commands::register_list_tasks_command(),
-                )
-                .await;
-            let _ = guild_id
-                .create_command(
-                    &ctx.http,
-                    crate::application::commands::register_remove_task_command(),
-                )
-                .await;
-            let _ = guild_id
-                .create_command(
-                    &ctx.http,
-                    crate::application::commands::register_help_command(),
-                )
-                .await;
-            let _ = guild_id
-                .create_command(
-                    &ctx.http,
-                    crate::application::commands::edit_task::register_edit_task_command(),
-                )
-                .await;
-            let _ = guild_id
-                .create_command(
-                    &ctx.http,
-                    crate::application::commands::set_notification_channel::register_set_notification_channel_command(),
-                )
-                .await;
-            let _ = guild_id
-                .create_command(
-                    &ctx.http,
-                    crate::application::commands::timezone::register_timezone_command(),
-                )
-                .await;
+            let commands = vec![
+            crate::application::commands::register_add_task_command(),
+            crate::application::commands::register_list_tasks_command(),
+            crate::application::commands::register_remove_task_command(),
+            crate::application::commands::register_help_command(),
+            crate::application::commands::edit_task::register_edit_task_command(),
+            crate::application::commands::set_notification_channel::register_set_notification_channel_command(),
+            crate::application::commands::timezone::register_timezone_command(),
+        ];
+
+            if let Err(e) = guild_id.set_commands(&ctx.http, commands).await {
+                eprintln!("Failed to set commands for guild {}: {}", guild_id, e);
+            } else {
+                println!("Commands updated for guild {}", guild_id);
+            }
         }
 
         // Start scheduler with services
@@ -148,6 +121,7 @@ impl EventHandler for CommandHandler {
     }
 }
 
+/// Factory that initializes repositories, services, and the discord bot, and then boots it
 pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     let token = std::env::var("DISCORD_TOKEN").expect("Expected token in environment");
     let intents = GatewayIntents::GUILDS

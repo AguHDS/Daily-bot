@@ -110,7 +110,7 @@ async fn show_timezone_selection(
 
         let timezone_id = &tz_info.utc[0];
         options.push(
-            CreateSelectMenuOption::new(label, timezone_id.clone()) // 🆕 Usar timezone_id en lugar de índice
+            CreateSelectMenuOption::new(label, timezone_id.clone())
                 .description(description),
         );
     }
@@ -255,7 +255,6 @@ pub async fn handle_timezone_select(
                     .await;
                 return;
             }
-            // Usar el primer resultado directamente sin guardar referencia al Vec
             search_results[0]
         }
     };

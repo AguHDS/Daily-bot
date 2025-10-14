@@ -75,8 +75,6 @@ pub async fn run_add_task(
         }
     };
 
-    let description = get_string_option(options, 1);
-
     let task_type = get_string_option(options, 1).unwrap_or("single".to_string());
     let notification_method = get_string_option(options, 2)
         .map(|s| parse_notification_method(&s))
@@ -126,8 +124,7 @@ pub async fn run_add_task(
         "task_description",
     )
     .required(false)
-    .placeholder("Add more details about your task...")
-    .value(description.unwrap_or_default()); // pre-fill with description from command if provided
+    .placeholder("Add more details about your task...");
 
     let datetime_row = CreateActionRow::InputText(datetime_input);
     let description_row = CreateActionRow::InputText(description_input);

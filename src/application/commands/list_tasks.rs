@@ -18,15 +18,15 @@ pub async fn run_list_tasks(
     timezone_service: &Arc<TimezoneService>,
 ) {
     let user_id: u64 = command.user.id.into();
+    let user_mention = command.user.mention();
 
-    // Obtener las tareas formateadas como embed
     let embed_response = task_service
         .get_user_tasks_embed(user_id, timezone_service.clone())
         .await;
 
-    // Crear respuesta con embed
     let builder = CreateInteractionResponse::Message(
         CreateInteractionResponseMessage::default()
+            .content(format!("{}, these are your tasks\n", user_mention))
             .add_embed(embed_response)
             .ephemeral(true),
     );

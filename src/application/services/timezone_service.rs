@@ -1,13 +1,13 @@
-use chrono::{DateTime, FixedOffset, LocalResult, TimeZone, Timelike, Utc, Weekday};
-use std::sync::Arc;
-
 use super::geo_mapping_service::GeoMappingService;
 use crate::domain::entities::task::Recurrence;
 use crate::domain::entities::user_preferences::UserPreferences;
 use crate::domain::repositories::user_preferences_repository::{
     RepositoryError, UserPreferencesRepository,
 };
+use crate::domain::value_objects::weekday_format::WeekdayFormat;
 use crate::infrastructure::timezone::timezone_manager::{TimezoneInfo, TimezoneManager};
+use chrono::{DateTime, FixedOffset, LocalResult, TimeZone, Timelike, Utc, Weekday};
+use std::sync::Arc;
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -250,42 +250,18 @@ impl TimezoneService {
 
     /// Parse days string into Weekday enums with intelligent parsing
     fn parse_days(days_str: &str) -> std::result::Result<Vec<Weekday>, String> {
-        let day_map = vec![
-            ("monday", Weekday::Mon),
-            ("tuesday", Weekday::Tue),
-            ("wednesday", Weekday::Wed),
-            ("thursday", Weekday::Thu),
-            ("friday", Weekday::Fri),
-            ("saturday", Weekday::Sat),
-            ("sunday", Weekday::Sun),
-            ("mon", Weekday::Mon),
-            ("tue", Weekday::Tue),
-            ("wed", Weekday::Wed),
-            ("thu", Weekday::Thu),
-            ("fri", Weekday::Fri),
-            ("sat", Weekday::Sat),
-            ("sun", Weekday::Sun),
-        ];
-
         let mut days = Vec::new();
+
         for day_str in days_str.split(',') {
-            let day_clean = day_str.trim().to_lowercase();
-            let mut found = false;
-            for (name, weekday) in &day_map {
-                if day_clean == *name {
-                    days.push(*weekday);
-                    found = true;
-                    break;
-                }
-            }
-            if !found {
+            let day_clean = day_str.trim();
+            if let Some(weekday) = Weekday::from_str(day_clean) {
+                days.push(weekday);
+            } else {
                 return Err(format!("Invalid day: {}", day_str));
             }
         }
 
-        // order days from Monday to Sunday
         days.sort_by_key(|weekday| weekday.num_days_from_monday());
-
         Ok(days)
     }
 

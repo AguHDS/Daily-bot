@@ -2,6 +2,7 @@ use crate::application::services::notification_service::NotificationService;
 use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::entities::task::{NotificationMethod, Recurrence, Task};
 use crate::domain::repositories::{ConfigRepository, TaskRepository};
+use crate::domain::value_objects::weekday_format::WeekdayFormat;
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
 use serenity::builder::{CreateEmbed, CreateEmbedFooter};
 use serenity::model::colour::Color;
@@ -258,19 +259,7 @@ impl TaskService {
                 // format the days of the week
                 let days_str = days
                     .iter()
-                    .map(|d| {
-                        // convert Weekday to short name in English
-                        match d {
-                            Weekday::Mon => "Mon",
-                            Weekday::Tue => "Tue",
-                            Weekday::Wed => "Wed",
-                            Weekday::Thu => "Thu",
-                            Weekday::Fri => "Fri",
-                            Weekday::Sat => "Sat",
-                            Weekday::Sun => "Sun",
-                        }
-                        .to_string()
-                    })
+                    .map(|d| d.to_short_en().to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
 
@@ -325,7 +314,7 @@ impl TaskService {
         }
     }
 
-    // Get user tasks to display in /list_tasks
+    /// Get user tasks to display in /list_tasks
     pub async fn get_user_tasks_embed(
         &self,
         user_id: u64,
@@ -360,21 +349,20 @@ impl TaskService {
 
         // separate tasks
         let (single_tasks, recurrent_tasks) = self.separate_tasks_by_type(&tasks);
+        let total_tasks = single_tasks.len() + recurrent_tasks.len();
 
         let mut embed = CreateEmbed::default()
             .title("📝 Your Tasks")
             .description(format!(
-                "You have **{}** task{} in total",
-                single_tasks.len() + recurrent_tasks.len(),
-                if single_tasks.len() + recurrent_tasks.len() != 1 {
-                    "s"
-                } else {
-                    ""
-                }
+                "\n• You have {} task{} in total",
+                total_tasks,
+                if total_tasks != 1 { "s" } else { "" }
             ))
             .color(Color::BLUE);
 
-        // single tasks
+        embed = embed.field("\n", "\n", false);
+
+        // Single tasks
         if !single_tasks.is_empty() {
             let mut single_tasks_field = String::new();
 
@@ -386,12 +374,12 @@ impl TaskService {
                             |utc_dt| match timezone_service
                                 .format_from_utc_with_timezone(utc_dt, &user_timezone)
                             {
-                                Ok(local_time) => format!("{}", local_time),
-                                Err(_) => format!("🕐 {} (UTC)", utc_dt.format("%Y-%m-%d %H:%M")),
+                                Ok(local_time) => format!("> {}", local_time),
+                                Err(_) => format!("> {} (UTC)", utc_dt.format("%Y-%m-%d %H:%M")),
                             },
                         );
 
-                single_tasks_field.push_str(&format!("**#{}** • {}\n", task.id, task.title));
+                single_tasks_field.push_str(&format!("#{} • **{}**\n", task.id, task.title));
 
                 if let Some(desc) = &task.description {
                     if !desc.trim().is_empty() {
@@ -403,13 +391,16 @@ impl TaskService {
             }
 
             embed = embed.field(
-                format!("Single Tasks ({})", single_tasks.len()),
+                format!(
+                    "▬▬▬▬▬ **Single Tasks ({})** ▬▬▬▬▬\n\u{200B}",
+                    single_tasks.len()
+                ),
                 single_tasks_field,
                 false,
             );
         }
 
-        // weekly tasks
+        // Weekly tasks
         if !recurrent_tasks.is_empty() {
             let mut recurrent_tasks_field = String::new();
 
@@ -420,7 +411,7 @@ impl TaskService {
                     &user_timezone,
                 );
 
-                recurrent_tasks_field.push_str(&format!("**#{}** • {}\n", task.id, task.title));
+                recurrent_tasks_field.push_str(&format!("#{} - **{}**\n", task.id, task.title));
 
                 if let Some(desc) = &task.description {
                     if !desc.trim().is_empty() {
@@ -428,22 +419,31 @@ impl TaskService {
                     }
                 }
 
-                recurrent_tasks_field.push_str(&format!("   {}\n\n", recurrence_str));
+                recurrent_tasks_field.push_str(&format!("   > {}\n\n", recurrence_str));
             }
 
-            embed = embed.field(
-                format!("Weekly Tasks ({})", recurrent_tasks.len()),
+            embed = embed.field("\n", "", false).field(
+                format!(
+                    "▬▬▬▬▬ **Weekly Tasks ({})** ▬▬▬▬▬\n\u{200B}",
+                    recurrent_tasks.len()
+                ),
                 recurrent_tasks_field,
                 false,
             );
         }
 
-        embed = embed
-            .footer(CreateEmbedFooter::new(format!(
-                "User: {} • Timezone: {}",
-                user_id, user_timezone
-            )))
-            .timestamp(Utc::now());
+        // Footer
+        let now = Utc::now();
+        let local_time_str =
+            match timezone_service.format_from_utc_with_timezone(now, &user_timezone) {
+                Ok(local_time) => local_time,
+                Err(_) => now.format("%Y-%m-%d %H:%M").to_string() + " (UTC)",
+            };
+
+        embed = embed.footer(CreateEmbedFooter::new(format!(
+            "\n\u{200B}\nTimezone: {} - {}",
+            user_timezone, local_time_str
+        )));
 
         embed
     }
@@ -571,10 +571,6 @@ impl TaskService {
         input_str: String,
         timezone_service: Arc<TimezoneService>,
     ) -> Result<u64, String> {
-        println!(
-            "DEBUG handle_add_task_modal - task_type: '{}', input_str: '{}'",
-            task_type, input_str
-        );
         let (scheduled_time, recurrence) = timezone_service
             .parse_task_input(&input_str, task_type, user_id)
             .await?;

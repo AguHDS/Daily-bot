@@ -4,6 +4,7 @@
 **Usage:** Called in `handlers.rs` inside the `ready` event of the `CommandHandler`
 
 ##### Description
+
 The scheduler is an **asynchronous loop** that:
 
 - Periodically checks the task repository
@@ -12,6 +13,7 @@ The scheduler is an **asynchronous loop** that:
 - Marks tasks as completed to avoid repeated reminders
 
 ##### Purpose
+
 - Automates the execution of scheduled tasks
 - Simulates **automatic reminders** for users
 - Can be extended in the future to **send messages directly in Discord** instead of just printing to the console
@@ -22,6 +24,7 @@ The scheduler is an **asynchronous loop** that:
 Usage: Used by TimezoneService to resolve geographic queries into valid timezone identifiers
 
 ##### Description
+
 The Geo-Mapping Service provides a lightweight, in-memory geographic lookup system that maps countries, U.S. states, and Canadian provinces to their corresponding IANA timezone identifiers.
 Exposes several lookup functions and a unified search method that:
 
@@ -32,14 +35,51 @@ Exposes several lookup functions and a unified search method that:
 - All UTC timezones here: `src\infrastructure\data\timezones.json`
 
 ##### Purpose
+
 Provides fast, static geographic-to-timezone resolution without requiring a database
-Simplifies timezone inference for user input such as “Brazil” or “California”
+Simplifies timezone inference for user input such as "Brazil" or "California"
 Enables the TimezoneService to perform combined searches using both static mappings and fuzzy timezone data
 Serves as a foundation for a future database-backed GeoMappingRepository, allowing migration to MySQL or other persistent storage solutions
 
-### Tasks behavior
+### Tasks Behavior
 
 Individual tasks: DELETED after notification
 Weekly Tasks (recurring tasks) are automatically RESCHEDULED after their time arrives (they are not deleted)
 
 There's no "completed" status - Implied completeness by deletion/reprogramming
+
+### Core Design Principles
+
+#### Architectural Consistency
+
+Despite different implementation approaches, the commands maintain architectural consistency:
+
+- **Shared Foundation**: All commands delegate business logic to `TaskService`
+- **Timezone Integration**: Unified timezone handling through `TimezoneService`
+- **Domain-Driven Design**: Common domain entities (`Task`, `Recurrence`, `WeekdayFormat`)
+- **Error Handling**: Consistent user feedback patterns and error management
+
+#### Hexagonal Architecture
+
+The bot follows basic clean architecture principles with clear boundaries:
+
+- **Commands**: User interaction handlers (Discord adapters)
+- **Services**: Business logic orchestration (application layer)
+- **Domain**: Core business entities and rules (heart of the system)
+- **Infrastructure**: External concerns like storage, timezone data, Discord API
+
+#### Timezone-Aware Scheduling
+
+- All task times are stored in UTC
+- User-facing displays show local times based on configured timezones
+- Geographic mapping enables intuitive timezone setup
+- Automatic conversion ensures correct scheduling across timezones
+
+#### Extensibility Framework
+
+The architecture supports natural growth:
+
+- New task types can be added through domain extensions
+- Additional notification methods integrate seamlessly
+- Geographic and timezone data can evolve without breaking changes
+- Command structure allows easy addition of new user interactions

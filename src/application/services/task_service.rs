@@ -379,11 +379,14 @@ impl TaskService {
                             },
                         );
 
-                single_tasks_field.push_str(&format!("#{} • **{}**\n", task.id, task.title));
+                single_tasks_field.push_str(&format!("#{} - __**{}**__\n\n", task.id, task.title));
 
-                if let Some(desc) = &task.description {
-                    if !desc.trim().is_empty() {
+                match &task.description {
+                    Some(desc) if !desc.trim().is_empty() => {
                         single_tasks_field.push_str(&format!("   *{}*\n", desc));
+                    }
+                    _ => {
+                        single_tasks_field.push_str("   *(no description)*\n");
                     }
                 }
 
@@ -411,11 +414,14 @@ impl TaskService {
                     &user_timezone,
                 );
 
-                recurrent_tasks_field.push_str(&format!("#{} - **{}**\n", task.id, task.title));
+                recurrent_tasks_field.push_str(&format!("#{} - __**{}**__\n\n", task.id, task.title));
 
-                if let Some(desc) = &task.description {
-                    if !desc.trim().is_empty() {
+                match &task.description {
+                    Some(desc) if !desc.trim().is_empty() => {
                         recurrent_tasks_field.push_str(&format!("   *{}*\n", desc));
+                    }
+                    _ => {
+                        recurrent_tasks_field.push_str("   *(no description)*\n");
                     }
                 }
 

@@ -1,6 +1,7 @@
 use crate::application::services::config_service::ConfigService;
 use crate::domain::entities::task::{NotificationMethod, Task};
-use serenity::builder::{CreateEmbed, CreateEmbedFooter, CreateMessage};
+use chrono::Local;
+use serenity::builder::{CreateEmbed, CreateMessage};
 use serenity::model::colour::Color;
 use serenity::model::id::{ChannelId, UserId};
 use serenity::prelude::Context;
@@ -56,7 +57,6 @@ impl NotificationService {
             .await
             .map_err(|e| format!("Failed to send DM to user {}: {}", user_id, e))?;
 
-        println!("DM embed sent to user {} for task #{}", user_id, task.id);
         Ok(())
     }
 
@@ -85,65 +85,56 @@ impl NotificationService {
                 )
             })?;
 
-        let embed = self.create_task_embed(task);
-        let msg = CreateMessage::new().embed(embed);
         let channel = ChannelId::new(channel_id);
+
+        let user_mention = format!("<@{}>", task.user_id);
+
+        let embed = self.create_task_embed(task);
+        let msg = CreateMessage::new()
+            .content(format!("Hey {}, your task is ready!", user_mention))
+            .embed(embed);
 
         channel
             .send_message(&ctx.http, msg)
             .await
             .map_err(|e| format!("Failed to send channel message for task {}: {}", task.id, e))?;
 
-        println!(
-            "Channel notification sent for task #{} in guild {}",
-            task.id, gid
-        );
-
         Ok(())
     }
 
+    /// Create a rich embed for task notifications
     fn create_task_embed(&self, task: &Task) -> CreateEmbed {
-        let mut embed = CreateEmbed::new()
-            .title("⏰ Task Reminder")
-            .color(Color::BLUE)
-            .field("Task", &task.title, false);
-
-        if let Some(description) = &task.description {
-            if !description.trim().is_empty() {
-                embed = embed.field("Description", description, false);
-            }
-        }
-
-        // add task id and type information
-        embed = embed.field("Task ID", format!("#{}", task.id), true);
-
-        // add recurrence information
         let task_type = if task.recurrence.is_some() {
             "Recurring"
         } else {
             "One-time"
         };
-        embed = embed.field("Type", task_type, true);
 
-        // add scheduled time if available
-        if let Some(scheduled_time) = task.scheduled_time {
-            embed = embed.field(
-                "Scheduled For",
-                format!("<t:{}:F>", scheduled_time.timestamp()),
-                false,
-            );
-        }
-
-        // add notification method
-        let method = match task.notification_method {
-            NotificationMethod::DM => "Direct Message",
-            NotificationMethod::Channel => "Channel",
-            NotificationMethod::Both => "Both DM and Channel",
+        let description = if let Some(desc) = &task.description {
+            if !desc.trim().is_empty() {
+                format!("{}", desc)
+            } else {
+                "_(no description)_".to_string()
+            }
+        } else {
+            "_(no description)_".to_string()
         };
-        embed = embed.field("Notification", method, true);
 
-        let footer = CreateEmbedFooter::new(format!("User ID: {}", task.user_id));
-        embed = embed.footer(footer);
+        let mut embed = CreateEmbed::new()
+            .title(format!("{}", task.title))
+            .color(Color::from_rgb(66, 135, 245))
+            .description(description)
+            .field("\u{2800}", "\u{200B}", false) // Espaciador
+            .field("Task ID", format!("#{}", task.id), true)
+            .field("Type", task_type, true);
+
+        if let Some(scheduled_time) = task.scheduled_time {
+            let local_time = scheduled_time.with_timezone(&Local);
+            let formatted = local_time.format("%A, %d - %B - %Y at %H:%M").to_string();
+
+            // Agregamos un field al final para la hora en gris
+            embed = embed.field("\u{2800}", format!("> {}", formatted), false);
+        }
 
         embed
     }

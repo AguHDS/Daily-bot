@@ -3,7 +3,7 @@ use serenity::builder::{
     CreateActionRow, CreateButton, CreateEmbed, CreateInteractionResponse,
     CreateInteractionResponseMessage, CreateSelectMenu, CreateSelectMenuOption,
 };
-use serenity::model::application::{CommandInteraction};
+use serenity::model::application::CommandInteraction;
 use serenity::model::colour::Colour;
 use serenity::prelude::*;
 use std::sync::Arc;
@@ -58,7 +58,10 @@ pub async fn run_timezone_command(
                 &ctx.http,
                 CreateInteractionResponse::Message(
                     CreateInteractionResponseMessage::new()
-                        .content(format!("❌ No time zones found for '{}'. Try a more specific name", location))
+                        .content(format!(
+                            "❌ No time zones found for '{}'. Try a more specific name",
+                            location
+                        ))
                         .ephemeral(true),
                 ),
             )
@@ -109,10 +112,8 @@ async fn show_timezone_selection(
         }
 
         let timezone_id = &tz_info.utc[0];
-        options.push(
-            CreateSelectMenuOption::new(label, timezone_id.clone())
-                .description(description),
-        );
+        options
+            .push(CreateSelectMenuOption::new(label, timezone_id.clone()).description(description));
     }
 
     let select_menu = CreateSelectMenu::new(
@@ -132,7 +133,7 @@ async fn show_timezone_selection(
                 CreateInteractionResponseMessage::new()
                     .content("🔍 **Select your timezone:**")
                     .components(vec![action_row])
-                    .ephemeral(true),
+                    .ephemeral(false),
             ),
         )
         .await;
@@ -166,13 +167,15 @@ async fn show_timezone_confirmation(
     };
 
     let embed = CreateEmbed::new()
-    .title("🕐 Timezone confirmation")
-    .description(format!(
-        "**Selected timezone:** {}\n**Hour:** `{}`\n\nThis is your current timezone?",
-        timezone_info.text, current_time
-    ))
-    .colour(Colour::DARK_GREEN)
-    .footer(CreateEmbedFooter::new("If it's not correct, cancel and find a more specific location"));
+        .title("🕐 Timezone confirmation")
+        .description(format!(
+            "**Selected timezone:** {}\n**Hour:** `{}`\n\nThis is your current timezone?",
+            timezone_info.text, current_time
+        ))
+        .colour(Colour::DARK_GREEN)
+        .footer(CreateEmbedFooter::new(
+            "If it's not correct, cancel and find a more specific location",
+        ));
 
     let accept_button = CreateButton::new(format!("timezone_confirm:{}", timezone_id))
         .label("✅ Yes, it's correct")
@@ -285,7 +288,9 @@ pub async fn handle_timezone_select(
             timezone_info.text, current_time
         ))
         .colour(Colour::DARK_GREEN)
-        .footer(CreateEmbedFooter::new("If it is not correct, cancel and search for a more specific location"));
+        .footer(CreateEmbedFooter::new(
+            "If it is not correct, cancel and search for a more specific location",
+        ));
 
     let accept_button = CreateButton::new(format!("timezone_confirm:{}", timezone_id))
         .label("✅ Yes, it's correct")
@@ -304,7 +309,7 @@ pub async fn handle_timezone_select(
                 CreateInteractionResponseMessage::new()
                     .embed(embed)
                     .components(vec![action_row])
-                    .ephemeral(true),
+                    .ephemeral(false),
             ),
         )
         .await;
@@ -328,16 +333,26 @@ pub async fn handle_timezone_confirm(
                 Err(_) => "Error obtaining hour".to_string(),
             };
 
+            let embed = CreateEmbed::new()
+                .title("Timezone setted up correctly!")
+                .description(format!(
+                    "Timezone setted up correctly for {}!",
+                    interaction.user.mention()
+                ))
+                .field("Zone", format!("`{}`", timezone_id), false)
+                .field("Hour", format!("`{}`", current_time), false)
+                .color(serenity::model::colour::Colour::DARK_GREEN)
+                .footer(CreateEmbedFooter::new(
+                    "Now you can create task with your current time",
+                ));
+
             let _ = interaction
                 .create_response(
                     &ctx.http,
                     CreateInteractionResponse::Message(
                         CreateInteractionResponseMessage::new()
-                            .content(format!(
-                                "✅ **Timezone setted up correctly!**\n\n**Zone:** `{}`\n**Hour:** `{}`\n\nNow you can create task with your current time",
-                                timezone_id, current_time
-                            ))
-                            .ephemeral(true),
+                            .embed(embed)
+                            .ephemeral(false),
                     ),
                 )
                 .await;
@@ -368,7 +383,7 @@ pub async fn handle_timezone_cancel(
             CreateInteractionResponse::Message(
                 CreateInteractionResponseMessage::new()
                     .content("❌ Time zone setting canceled")
-                    .ephemeral(true),
+                    .ephemeral(false),
             ),
         )
         .await;

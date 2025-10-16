@@ -169,7 +169,6 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         .event_handler(handler)
         .await?;
 
-    println!("Bot starting...");
     client.start().await?;
     Ok(())
 }

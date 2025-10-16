@@ -31,7 +31,7 @@ pub async fn run_set_notification_channel(
         .create_response(
             &ctx.http,
             CreateInteractionResponse::Defer(
-                CreateInteractionResponseMessage::new().ephemeral(true),
+                CreateInteractionResponseMessage::new().ephemeral(false),
             ),
         )
         .await

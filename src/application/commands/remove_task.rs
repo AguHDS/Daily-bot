@@ -77,7 +77,7 @@ pub async fn run_remove_task(
                         CreateInteractionResponseMessage::default()
                             .content("Select a task to delete:")
                             .components(components)
-                            .ephemeral(true),
+                            .ephemeral(false),
                     ),
                 )
                 .await;
@@ -129,7 +129,7 @@ pub async fn handle_remove_select(
                                         CreateInteractionResponse::Message(
                                             CreateInteractionResponseMessage::default()
                                                 .content(content)
-                                                .ephemeral(true),
+                                                .ephemeral(false),
                                         ),
                                     )
                                     .await;
@@ -182,7 +182,7 @@ pub async fn handle_remove_select(
                             CreateInteractionResponseMessage::default()
                                 .content("⚠️ Are you sure you want to delete all your tasks?")
                                 .components(rows)
-                                .ephemeral(true),
+                                .ephemeral(false),
                         ),
                     )
                     .await;
@@ -198,7 +198,7 @@ pub async fn handle_remove_select(
                                     CreateInteractionResponseMessage::default()
                                         .content(format!("✅ {} tasks deleted successfully", count))
                                         .components(vec![])
-                                        .ephemeral(true),
+                                        .ephemeral(false),
                                 ),
                             )
                             .await;

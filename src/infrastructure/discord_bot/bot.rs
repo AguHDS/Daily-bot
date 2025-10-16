@@ -21,16 +21,10 @@ pub struct CommandHandler {
     pub timezone_service: Arc<TimezoneService>,
 }
 
-#[serenity::async_trait]
-impl EventHandler for CommandHandler {
-    async fn ready(&self, ctx: Context, ready: Ready) {
-        println!("Bot ready as {}", ready.user.name);
-
-        // register commands
-        for guild_status in ready.guilds {
-            let guild_id: GuildId = guild_status.id;
-
-            let commands = vec![
+impl CommandHandler {
+    /// Helper function to register commands for a specific guild
+    async fn register_commands_for_guild(&self, ctx: &Context, guild_id: GuildId) {
+        let commands = vec![
             crate::application::commands::register_add_task_command(),
             crate::application::commands::register_list_tasks_command(),
             crate::application::commands::register_remove_task_command(),
@@ -40,11 +34,25 @@ impl EventHandler for CommandHandler {
             crate::application::commands::timezone::register_timezone_command(),
         ];
 
-            if let Err(e) = guild_id.set_commands(&ctx.http, commands).await {
-                eprintln!("Failed to set commands for guild {}: {}", guild_id, e);
-            } else {
-                println!("Commands updated for guild {}", guild_id);
-            }
+        match guild_id.set_commands(&ctx.http, commands).await {
+            Ok(_) => println!("✅ Commands registered for guild {}", guild_id),
+            Err(e) => eprintln!(
+                "❌ Failed to register commands for guild {}: {}",
+                guild_id, e
+            ),
+        }
+    }
+}
+
+#[serenity::async_trait]
+impl EventHandler for CommandHandler {
+    async fn ready(&self, ctx: Context, ready: Ready) {
+        println!("Bot ready as {}", ready.user.name);
+
+        // register commands for existing guilds
+        for guild_status in ready.guilds {
+            let guild_id: GuildId = guild_status.id;
+            self.register_commands_for_guild(&ctx, guild_id).await;
         }
 
         // Start scheduler with services
@@ -55,6 +63,24 @@ impl EventHandler for CommandHandler {
             self.notification_service.clone(),
         );
         println!("Scheduler started");
+    }
+
+    /// Handle when the bot joins a new guild
+    async fn guild_create(
+        &self,
+        ctx: Context,
+        guild: serenity::model::guild::Guild,
+        is_new: Option<bool>,
+    ) {
+        println!("Bot joined new guild: {} ({})", guild.name, guild.id);
+
+        // only register commands when is a new server (not one on cache)
+        if is_new.unwrap_or(false) {
+            println!("Registering commands for new guild...");
+            self.register_commands_for_guild(&ctx, guild.id).await;
+        } else {
+            println!("Guild was cached, skipping command registration");
+        }
     }
 
     /// Decide what to do depending on user's interaction type with the bot

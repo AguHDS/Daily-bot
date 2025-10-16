@@ -1,4 +1,5 @@
 use dotenvy::dotenv;
+mod features;
 mod application;
 mod domain;
 mod infrastructure;

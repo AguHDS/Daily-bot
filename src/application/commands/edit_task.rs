@@ -464,17 +464,6 @@ pub async fn process_edit_task_modal(
 
             let date_str = format_task_date(&updated_task, timezone_service, &user_timezone);
 
-            let description_display = if let Some(desc) = &updated_task.description {
-                if !desc.trim().is_empty() {
-                    format!("\n**Description:** {}", desc)
-                } else {
-                    String::new()
-                }
-            } else {
-                String::new()
-            };
-
-            // ✅ PARTE MODIFICADA: Convertir a embed verde
             let embed = CreateEmbed::new()
                 .title("Task Updated Successfully")
                 .description(format!("Task **#{}** has been updated", updated_task.id))

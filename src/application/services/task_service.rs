@@ -45,22 +45,12 @@ impl TaskService {
     pub async fn handle_post_notification_task(&self, task: &Task) -> Result<(), String> {
         if task.recurrence.is_none() {
             // single task - remove after notification
-            let removed = self.task_repo.remove_task(task.id);
-            if removed {
-                println!("✅ Single task #{} removed after notification", task.id);
-            }
             Ok(())
         } else {
             // recurring task (weekly) - reschedule for next occurrence
             if let Some(next_time) = task.next_occurrence() {
                 match self.task_repo.update_task_time(task.id, next_time) {
-                    Ok(_) => {
-                        println!(
-                            "♻️ Recurring task #{} rescheduled for {}",
-                            task.id, next_time
-                        );
-                        Ok(())
-                    }
+                    Ok(_) => Ok(()),
                     Err(err) => Err(format!(
                         "Failed to reschedule recurring task #{}: {}",
                         task.id, err
@@ -414,7 +404,8 @@ impl TaskService {
                     &user_timezone,
                 );
 
-                recurrent_tasks_field.push_str(&format!("#{} - __**{}**__\n\n", task.id, task.title));
+                recurrent_tasks_field
+                    .push_str(&format!("#{} - __**{}**__\n\n", task.id, task.title));
 
                 match &task.description {
                     Some(desc) if !desc.trim().is_empty() => {

@@ -21,7 +21,7 @@ pub async fn run_help_command(ctx: &Context, command: &CommandInteraction) {
     let builder = CreateInteractionResponse::Message(
         CreateInteractionResponseMessage::default()
             .content(content)
-            .ephemeral(true),
+            .ephemeral(false),
     );
 
     if let Err(err) = command.create_response(&ctx.http, builder).await {

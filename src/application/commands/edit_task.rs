@@ -6,7 +6,7 @@ use chrono::{Timelike, Utc};
 use serenity::all::{
     ActionRowComponent, CommandInteraction, ComponentInteraction, ComponentInteractionDataKind,
     Context, CreateActionRow, CreateCommand, CreateInteractionResponse,
-    CreateInteractionResponseMessage, InputTextStyle, ModalInteraction,
+    CreateInteractionResponseMessage, InputTextStyle, ModalInteraction, CreateEmbed
 };
 use serenity::builder::{
     CreateInputText, CreateModal, CreateSelectMenu, CreateSelectMenuKind, CreateSelectMenuOption,
@@ -474,16 +474,30 @@ pub async fn process_edit_task_modal(
                 String::new()
             };
 
-            let content = format!(
-                "✅ Task **#{}** updated:\n**Title:** {}{}\n**Date:** {}",
-                updated_task.id, updated_task.title, description_display, date_str
-            );
+            // ✅ PARTE MODIFICADA: Convertir a embed verde
+            let embed = CreateEmbed::new()
+                .title("Task Updated Successfully")
+                .description(format!("Task **#{}** has been updated", updated_task.id))
+                .field("Title", &updated_task.title, false)
+                .field("Date", &date_str, false)
+                .color(serenity::model::colour::Colour::DARK_GREEN);
+
+            // Agregar campo de descripción solo si existe
+            let embed = if let Some(desc) = &updated_task.description {
+                if !desc.trim().is_empty() {
+                    embed.field("Description", desc, false)
+                } else {
+                    embed
+                }
+            } else {
+                embed
+            };
 
             let _ = modal
                 .create_response(
                     ctx,
                     CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::default().content(content),
+                        CreateInteractionResponseMessage::default().embed(embed),
                     ),
                 )
                 .await;

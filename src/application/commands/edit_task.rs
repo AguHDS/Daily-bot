@@ -340,7 +340,7 @@ pub async fn handle_edit_select(
         if let Some(Recurrence::Weekly { days, hour, minute }) = &task.recurrence {
             format_days_and_time(days, *hour, *minute, timezone_service, &user_timezone)
         } else {
-            "Enter days and hour (Mon,Wed,Fri 14:00)".to_string()
+            "Format: Mon,Tue,Wed,Thu,Fri,Sat,Sun 16:00".to_string()
         }
     } else if let Some(utc_time) = task.scheduled_time {
         match timezone_service.format_from_utc_with_timezone(utc_time, &user_timezone) {

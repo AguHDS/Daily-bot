@@ -309,7 +309,7 @@ pub async fn handle_timezone_select(
                 CreateInteractionResponseMessage::new()
                     .embed(embed)
                     .components(vec![action_row])
-                    .ephemeral(false),
+                    .ephemeral(true),
             ),
         )
         .await;

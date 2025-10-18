@@ -103,7 +103,7 @@ pub async fn run_add_task(
     let datetime_input = if task_type == "weekly" {
         CreateInputText::new(
             InputTextStyle::Short,
-            "Enter Days & Hour (Mon,Wed,Fri HH:MM)",
+            "Format: Mon,Tue,Wed,Thu,Fri,Sat,Sun 16:00",
             "weekly_datetime",
         )
         .required(true)
@@ -224,7 +224,7 @@ pub async fn process_task_modal_input(
             user_id,
             guild_id,
             task_type,
-            title,
+            title.clone(),
             description_input,
             notification_method,
             datetime_input,
@@ -232,8 +232,8 @@ pub async fn process_task_modal_input(
         )
         .await
     {
-        Ok(task_id) => {
-            let response_content = format!("✅ Task **#{}** created successfully!", task_id);
+        Ok(_task_id) => {
+            let response_content = format!("✅ Task **{}** created successfully!", title);
             let response = CreateInteractionResponse::Message(
                 CreateInteractionResponseMessage::default().content(response_content),
             );

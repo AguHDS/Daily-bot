@@ -191,20 +191,27 @@ impl TaskService {
 
     // === REMOVE TASK BUSINESS LOGIC ===
 
-    pub async fn remove_user_task(&self, task_id: u64, user_id: u64) -> Result<bool, String> {
+    pub async fn remove_user_task(
+        &self,
+        task_id: u64,
+        user_id: u64,
+    ) -> Result<Option<Task>, String> {
         // verify that the task belongs to the user
         let tasks = self.task_repo.list_tasks();
         if let Some(task) = tasks.into_iter().find(|t| t.id == task_id) {
             if task.user_id == user_id {
                 let removed = self.task_repo.remove_task(task_id);
-                return Ok(removed);
+                if removed {
+                    return Ok(Some(task));
+                } else {
+                    return Ok(None);
+                }
             } else {
                 return Err("You don't have permission to delete this task".to_string());
             }
         }
-        Ok(false)
+        Ok(None)
     }
-
     pub async fn remove_all_user_tasks(&self, user_id: u64) -> Result<usize, String> {
         let count = self.task_repo.remove_all_by_user(user_id);
         Ok(count)

@@ -117,12 +117,9 @@ pub async fn handle_remove_select(
                     Ok(task_id) => {
                         // delegate to TaskService for business logic
                         match task_service.remove_user_task(task_id, user_id).await {
-                            Ok(removed) => {
-                                let content = if removed {
-                                    format!("✅ Task #{} deleted.", task_id)
-                                } else {
-                                    format!("❌ Couldn't find task #{}.", task_id)
-                                };
+                            Ok(Some(removed_task)) => {
+                                let content =
+                                    format!("✅ Task **{}** deleted.", removed_task.title);
                                 let _ = interaction
                                     .create_response(
                                         &ctx.http,
@@ -130,6 +127,19 @@ pub async fn handle_remove_select(
                                             CreateInteractionResponseMessage::default()
                                                 .content(content)
                                                 .ephemeral(false),
+                                        ),
+                                    )
+                                    .await;
+                            }
+                            Ok(None) => {
+                                let content = format!("❌ Couldn't find task #{}.", task_id);
+                                let _ = interaction
+                                    .create_response(
+                                        &ctx.http,
+                                        CreateInteractionResponse::Message(
+                                            CreateInteractionResponseMessage::default()
+                                                .content(content)
+                                                .ephemeral(true),
                                         ),
                                     )
                                     .await;

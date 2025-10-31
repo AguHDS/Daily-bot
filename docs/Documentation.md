@@ -1,22 +1,46 @@
-### Scheduler
+### Priority Queue Scheduler
 
-**File:** `src/application/scheduler/scheduler_tokio.rs`  
-**Usage:** Called in `handlers.rs` inside the `ready` event of the `CommandHandler`
+**File:** `src/infrastructure/scheduler/priority_queue_scheduler.rs`  
+**Usage:** Started in `bot.rs` during Discord client initialization using `TaskOrchestrator` coordination
 
 ##### Description
 
-The scheduler is an **asynchronous loop** that:
+The scheduler is an **efficient asynchronous system** using a priority queue that:
 
-- Periodically checks the task repository
-- Finds tasks whose **scheduled time has passed** and are **not yet completed**
-- Prints a reminder message in the console for each task
-- Marks tasks as completed to avoid repeated reminders
+- **Only checks the next due task** (O(1) operation) instead of scanning all tasks
+- **Sleeps precisely** until the next notification time - no fixed intervals
+- **Maintains tasks ordered by time** using BinaryHeap with earliest tasks having highest priority
+- **Processes notifications immediately** when tasks become due
+- **Handles both single and recurring tasks** through TaskOrchestrator coordination
+- **Automatically reschedules weekly tasks** for their next occurrence
+- **Sends Discord notifications** via DM, channel, or both based on user preferences
+
+##### Technical Implementation
+
+**Priority Queue Structure:**
+- Uses `BinaryHeap<Reverse<ScheduledTask>>` for min-heap behavior (earliest first)
+- `ScheduledTask` entities contain minimal data for memory efficiency
+- Thread-safe access through Tokio `Mutex` for concurrent operations
+
+**Scheduler Loop Behavior:**
+1. `peek_next_task()` - Check the earliest scheduled task (O(1))
+2. If task is due: process immediately and `pop()` from queue
+3. If not due: sleep exactly until that task's scheduled time
+4. If no tasks: sleep for 5 minutes and recheck
+
+**Complexity Analysis:**
+- **Task Checking**: O(1) - only peeks at next task regardless of total count
+- **Task Addition**: O(log n) - maintains heap ordering when adding new tasks  
+- **Task Removal**: O(log n) - efficient removal while preserving structure
+- **Memory Usage**: Minimal - only essential task data in queue
 
 ##### Purpose
 
-- Automates the execution of scheduled tasks
-- Simulates **automatic reminders** for users
-- Can be extended in the future to **send messages directly in Discord** instead of just printing to the console
+- **Maximum Efficiency**: Scales to thousands of tasks without performance degradation
+- **Precise Timing**: Notifications delivered at exact scheduled moment (no ±60s windows)
+- **Resource Optimization**: Eliminates continuous database polling and unnecessary checks  
+- **Production Ready**: Built for multi-server Discord bot hosting with optimal performance
+- **Future-Proof Architecture**: Clean separation allows easy database migration from JSON storage
 
 ### Geo-Mapping service
 

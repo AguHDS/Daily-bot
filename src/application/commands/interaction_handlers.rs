@@ -149,6 +149,7 @@ pub async fn handle_modal(
     interaction: &Interaction,
     task_orchestrator: &Arc<TaskOrchestrator>,
     timezone_service: &Arc<TimezoneService>,
+    config_service: &Arc<crate::application::services::config_service::ConfigService>,
 ) {
     if let Some(modal) = interaction.clone().modal_submit() {
         let custom_id = modal.data.custom_id.as_str();
@@ -172,6 +173,7 @@ pub async fn handle_modal(
                 &modal,
                 task_orchestrator,
                 timezone_service,
+                config_service,
             )
             .await
             .unwrap_or_else(|err| {

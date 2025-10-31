@@ -153,6 +153,7 @@ pub async fn process_task_modal_input(
     modal: &ModalInteraction,
     task_orchestrator: &Arc<TaskOrchestrator>,
     timezone_service: &Arc<TimezoneService>,
+    config_service: &Arc<crate::application::services::config_service::ConfigService>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // parse custom_id: "single_task_modal|title|NotificationMethod"
     let parts: Vec<&str> = modal.data.custom_id.split('|').collect();
@@ -190,6 +191,29 @@ pub async fn process_task_modal_input(
     // get user and guild info from modal
     let user_id = modal.user.id.get();
     let guild_id = modal.guild_id.map(|g| g.get()).unwrap_or(0);
+
+    // validate notification channel is configured if needed
+    match notification_method {
+        NotificationMethod::Channel | NotificationMethod::Both => {
+            match config_service.get_notification_channel(guild_id).await {
+                None => {
+                    let response = CreateInteractionResponse::Message(
+                        CreateInteractionResponseMessage::default()
+                            .content("❌ **No notification channel configured**\n\nTo create tasks with channel notifications, an admin must first set up a notification channel using `/set_notification_channel`")
+                            .ephemeral(true),
+                    );
+                    modal.create_response(&ctx.http, response).await?;
+                    return Ok(());
+                }
+                Some(_) => {
+                    // Channel is configured, continue with task creation
+                }
+            }
+        }
+        NotificationMethod::DM => {
+            // DM notifications don't require channel configuration
+        }
+    }
 
     // validate that the user has timezone configured
     match timezone_service.get_user_timezone(user_id).await {

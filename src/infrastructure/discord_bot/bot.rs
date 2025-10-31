@@ -153,6 +153,7 @@ impl EventHandler for CommandHandler {
                     &interaction,
                     &self.task_orchestrator, // ✅ CAMBIAR: Usar orchestrator para creación/edición
                     &self.timezone_service,
+                    &self.config_service,
                 )
                 .await;
             }

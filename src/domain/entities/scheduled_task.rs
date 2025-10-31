@@ -12,6 +12,7 @@ pub struct ScheduledTask {
     pub title: String,
     pub notification_method: crate::domain::entities::task::NotificationMethod,
     pub is_recurring: bool,
+    pub is_deleted: bool, // For lazy deletion - infrastructure concern but stored in entity
 }
 
 impl ScheduledTask {
@@ -28,7 +29,18 @@ impl ScheduledTask {
             title: task.title.clone(),
             notification_method: task.notification_method.clone(),
             is_recurring: task.recurrence.is_some(),
+            is_deleted: false, // Always start as not deleted
         }
+    }
+
+    /// Mark this task as deleted for lazy deletion
+    pub fn mark_deleted(&mut self) {
+        self.is_deleted = true;
+    }
+
+    /// Check if this task has been marked for deletion
+    pub fn is_marked_for_deletion(&self) -> bool {
+        self.is_deleted
     }
 }
 
@@ -41,8 +53,15 @@ impl PartialOrd for ScheduledTask {
 
 impl Ord for ScheduledTask {
     fn cmp(&self, other: &Self) -> Ordering {
-        // Reverse order so earliest times come first in max-heap
-        other.scheduled_time.cmp(&self.scheduled_time)
+        // Deleted tasks should sink to bottom of priority queue
+        match (self.is_deleted, other.is_deleted) {
+            (true, false) => Ordering::Less,    // self is deleted, other is not -> self is lower priority
+            (false, true) => Ordering::Greater, // self is not deleted, other is -> self is higher priority  
+            _ => {
+                // Both have same deletion status, compare by time (earliest first)
+                other.scheduled_time.cmp(&self.scheduled_time)
+            }
+        }
     }
 }
 

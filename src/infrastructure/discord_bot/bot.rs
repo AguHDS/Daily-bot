@@ -24,6 +24,7 @@ pub struct CommandHandler {
     pub config_service: Arc<ConfigService>,
     pub notification_service: Arc<NotificationService>,
     pub timezone_service: Arc<TimezoneService>,
+    pub memory_scheduler_repo: Arc<MemorySchedulerRepository>,
 }
 
 impl CommandHandler {
@@ -40,9 +41,9 @@ impl CommandHandler {
         ];
 
         match guild_id.set_commands(&ctx.http, commands).await {
-            Ok(_) => println!("✅ Commands registered for guild {}", guild_id),
+            Ok(_) => println!("Commands registered for guild {}", guild_id),
             Err(e) => eprintln!(
-                "❌ Failed to register commands for guild {}: {}",
+                "Failed to register commands for guild {}: {}",
                 guild_id, e
             ),
         }
@@ -60,14 +61,20 @@ impl EventHandler for CommandHandler {
             self.register_commands_for_guild(&ctx, guild_id).await;
         }
 
+        // initialize scheduler with existing tasks
+        if let Err(e) = self.task_orchestrator.initialize_scheduler_with_existing_tasks().await {
+            eprintln!("Failed to initialize scheduler with existing tasks: {}", e);
+        }
+
         // start priority queue
         PriorityQueueScheduler::start_scheduler(
             Arc::new(ctx),
             self.task_orchestrator.clone(),
             self.config_service.clone(),
             self.notification_service.clone(),
+            self.memory_scheduler_repo.clone(),
         );
-        println!("🚀 Priority Queue Scheduler started");
+
     }
 
     /// Handle when the bot joins a new guild
@@ -122,6 +129,7 @@ impl EventHandler for CommandHandler {
                         &ctx,
                         &interaction,
                         &self.task_service, // Mantener task_service para consultas
+                        &self.task_orchestrator, // Add orchestrator for remove operations
                         &self.config_service,
                         &self.notification_service,
                         &self.timezone_service,
@@ -134,6 +142,7 @@ impl EventHandler for CommandHandler {
                     &ctx,
                     &interaction,
                     &self.task_service, // Mantener task_service para consultas
+                    &self.task_orchestrator, // Add orchestrator for remove operations
                     &self.timezone_service,
                 )
                 .await;
@@ -168,8 +177,9 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     let user_prefs_repo: Arc<dyn UserPreferencesRepository> = Arc::new(
         JsonUserPreferencesRepository::new("./data/user_timezone_config.json"),
     );
-    let task_scheduler: Arc<dyn TaskSchedulerRepository> =
-        Arc::new(MemorySchedulerRepository::new()); // ✅ NUEVO
+    // Create memory scheduler repository - need both concrete and trait references
+    let memory_scheduler_repo = Arc::new(MemorySchedulerRepository::new());
+    let task_scheduler: Arc<dyn TaskSchedulerRepository> = memory_scheduler_repo.clone();
 
     // initialize timezone manager
     let timezone_manager = Arc::new(
@@ -200,10 +210,11 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
 
     let handler = CommandHandler {
         task_service: task_service.clone(),
-        task_orchestrator: task_orchestrator.clone(), // ✅ NUEVO
+        task_orchestrator: task_orchestrator.clone(),
         config_service: config_service.clone(),
         notification_service: notification_service.clone(),
         timezone_service: timezone_service.clone(),
+        memory_scheduler_repo: memory_scheduler_repo.clone(),
     };
 
     let mut client = Client::builder(&token, intents)

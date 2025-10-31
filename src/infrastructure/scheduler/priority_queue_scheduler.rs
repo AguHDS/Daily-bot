@@ -4,6 +4,7 @@ use crate::application::services::task_orchestrator::TaskOrchestrator;
 use chrono::Utc;
 use serenity::prelude::Context;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tokio::time::{Duration, sleep};
 
 /// Efficient scheduler using priority queue
@@ -15,21 +16,29 @@ impl PriorityQueueScheduler {
         task_orchestrator: Arc<TaskOrchestrator>,
         config_service: Arc<ConfigService>,
         notification_service: Arc<NotificationService>,
+        memory_scheduler: Arc<crate::infrastructure::repositories::memory_scheduler_repository::MemorySchedulerRepository>,
     ) {
         tokio::spawn(async move {
+            // Subscribe to wake-up notifications
+            let mut wakeup_receiver = memory_scheduler.subscribe_wakeup();
+            
             loop {
                 match Self::scheduler_iteration(
                     &ctx,
                     &task_orchestrator,
                     &config_service,
                     &notification_service,
+                    &mut wakeup_receiver,
                 )
                 .await
                 {
                     Ok(should_continue) => {
                         if !should_continue {
                             // No pending tasks, sleep for a while
-                            sleep(Duration::from_secs(300)).await; // 5m
+                            tokio::select! {
+                                _ = sleep(Duration::from_secs(300)) => {},
+                                _ = wakeup_receiver.recv() => {}
+                            }
                             continue;
                         }
                     }
@@ -48,6 +57,7 @@ impl PriorityQueueScheduler {
         task_orchestrator: &TaskOrchestrator,
         config_service: &ConfigService,
         notification_service: &NotificationService,
+        wakeup_receiver: &mut broadcast::Receiver<()>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let now = Utc::now();
 
@@ -55,6 +65,7 @@ impl PriorityQueueScheduler {
         if let Some(next_task) = task_orchestrator.peek_next_scheduled_task().await? {
             if next_task.scheduled_time <= now {
                 // task ready to notify
+                
                 Self::process_due_task(
                     ctx,
                     task_orchestrator,
@@ -63,13 +74,20 @@ impl PriorityQueueScheduler {
                     next_task,
                 )
                 .await?;
+                
                 return Ok(true); // continue immediatly (there might be more due tasks)
             } else {
-                // sleep until next task is due (with a minimum of 1 second)
-                let sleep_duration = (next_task.scheduled_time - now)
+                // Sleep until next task is due OR until interrupted by new task
+                let time_until_task = (next_task.scheduled_time - now)
                     .to_std()
                     .unwrap_or(Duration::from_secs(1));
-                sleep(sleep_duration).await;
+                
+                // Use tokio::select! to sleep until task time OR wake-up signal
+                tokio::select! {
+                    _ = sleep(time_until_task) => {}
+                    _ = wakeup_receiver.recv() => {}
+                }
+                
                 return Ok(true);
             }
         } else {
@@ -86,22 +104,13 @@ impl PriorityQueueScheduler {
         scheduled_task: crate::domain::entities::scheduled_task::ScheduledTask,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // remove the task from the scheduler (it's already in scheduled_task)
-        let _ = task_orchestrator.pop_next_scheduled_task().await?;
-
-        println!(
-            "Processing due task: {} - '{}'",
-            scheduled_task.task_id, scheduled_task.title
-        );
+        task_orchestrator.pop_next_scheduled_task().await?;
 
         // send notification
-        if let Err(err) = notification_service
+        if let Err(_err) = notification_service
             .send_task_notification_from_scheduled(&scheduled_task, ctx, config_service)
             .await
         {
-            eprintln!(
-                "Failed to send notification for task {}: {}",
-                scheduled_task.task_id, err
-            );
             // reinsert task if notification failed (retry in 1 minute)
             let retry_time = Utc::now() + chrono::Duration::minutes(1);
             let mut retry_task = scheduled_task.clone();
@@ -112,17 +121,7 @@ impl PriorityQueueScheduler {
 
         // obtain repository's full response and handle post-notification via orchestrator
         if let Some(full_task) = task_orchestrator.get_task_by_id(scheduled_task.task_id).await {
-            if let Err(err) = task_orchestrator.handle_post_notification_task(&full_task).await {
-                eprintln!(
-                    "Failed to handle post-notification for task {}: {}",
-                    scheduled_task.task_id, err
-                );
-            }
-        } else {
-            eprintln!(
-                "Task {} not found in repository during post-notification",
-                scheduled_task.task_id
-            );
+            let _ = task_orchestrator.handle_post_notification_task(&full_task).await;
         }
 
         Ok(())

@@ -1,4 +1,4 @@
-use crate::application::services::task_service::TaskService;
+use crate::application::services::TaskOrchestrator;
 use serenity::all::{
     ButtonStyle, CommandInteraction, ComponentInteraction, Context, CreateActionRow, CreateButton,
     CreateCommand, CreateInteractionResponse, CreateInteractionResponseMessage, CreateSelectMenu,
@@ -13,12 +13,12 @@ pub fn register_remove_task_command() -> CreateCommand {
 pub async fn run_remove_task(
     ctx: &Context,
     command: &CommandInteraction,
-    task_service: &Arc<TaskService>,
+    task_orchestrator: &Arc<TaskOrchestrator>,
 ) {
     let user_id = command.user.id.get();
 
-    // delegate to TaskService for business logic
-    match task_service.get_user_tasks_for_removal(user_id).await {
+    // delegate to TaskOrchestrator for business logic
+    match task_orchestrator.get_user_tasks_for_removal(user_id).await {
         Ok((single_tasks, weekly_tasks)) => {
             let mut components: Vec<CreateActionRow> = Vec::new();
 
@@ -101,7 +101,7 @@ pub async fn run_remove_task(
 pub async fn handle_remove_select(
     ctx: &Context,
     interaction: &ComponentInteraction,
-    task_service: &Arc<TaskService>,
+    task_orchestrator: &Arc<TaskOrchestrator>,
 ) {
     use serenity::all::{
         ComponentInteractionDataKind, CreateActionRow, CreateButton, CreateInteractionResponse,
@@ -115,8 +115,8 @@ pub async fn handle_remove_select(
             if let Some(selected) = values.first() {
                 match selected.parse::<u64>() {
                     Ok(task_id) => {
-                        // delegate to TaskService for business logic
-                        match task_service.remove_user_task(task_id, user_id).await {
+                        // delegate to TaskOrchestrator for business logic
+                        match task_orchestrator.remove_user_task(task_id, user_id).await {
                             Ok(Some(removed_task)) => {
                                 let content =
                                     format!("✅ Task **{}** deleted.", removed_task.title);
@@ -198,8 +198,8 @@ pub async fn handle_remove_select(
                     .await;
             }
             "confirm_remove_all_yes" => {
-                // delegate to TaskService for business logic
-                match task_service.remove_all_user_tasks(user_id).await {
+                // delegate to TaskOrchestrator for business logic
+                match task_orchestrator.remove_all_user_tasks(user_id).await {
                     Ok(count) => {
                         let _ = interaction
                             .create_response(

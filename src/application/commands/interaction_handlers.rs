@@ -12,6 +12,7 @@ pub async fn handle_command(
     ctx: &Context,
     interaction: &Interaction,
     task_service: &Arc<TaskService>,
+    task_orchestrator: &Arc<TaskOrchestrator>,
     config_service: &Arc<ConfigService>,
     _notification_service: &Arc<NotificationService>,
     timezone_service: &Arc<TimezoneService>,
@@ -31,7 +32,7 @@ pub async fn handle_command(
                 crate::application::commands::remove_task::run_remove_task(
                     ctx,
                     &command,
-                    task_service,
+                    task_orchestrator,
                 )
                 .await;
             }
@@ -68,6 +69,7 @@ pub async fn handle_component(
     ctx: &Context,
     interaction: &Interaction,
     task_service: &Arc<TaskService>,
+    task_orchestrator: &Arc<TaskOrchestrator>,
     timezone_service: &Arc<TimezoneService>,
 ) {
     if let Some(component) = interaction.clone().message_component() {
@@ -117,7 +119,7 @@ pub async fn handle_component(
             crate::application::commands::remove_task::handle_remove_select(
                 ctx,
                 &component,
-                task_service,
+                task_orchestrator,
             )
             .await;
             return;

@@ -1,4 +1,5 @@
 use crate::application::services::task_service::TaskService;
+use crate::application::services::task_orchestrator::TaskOrchestrator;
 use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::entities::task::Recurrence;
 use crate::domain::value_objects::weekday_format::WeekdayFormat;
@@ -373,7 +374,7 @@ pub async fn handle_edit_select(
 pub async fn process_edit_task_modal(
     ctx: &Context,
     modal: &ModalInteraction,
-    task_service: &Arc<TaskService>,
+    task_orchestrator: &Arc<TaskOrchestrator>,
     timezone_service: &Arc<TimezoneService>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if !modal.data.custom_id.starts_with("edit_task_modal_") {
@@ -429,7 +430,7 @@ pub async fn process_edit_task_modal(
 
     // determine if it's a weekly task by checking the original task
     let is_weekly_task =
-        if let Some(original_task) = task_service.get_task_for_editing(task_id, user_id).await {
+        if let Some(original_task) = task_orchestrator.get_task_for_editing(task_id, user_id).await {
             original_task.recurrence.is_some()
         } else {
             let _ = modal
@@ -444,15 +445,14 @@ pub async fn process_edit_task_modal(
             return Ok(());
         };
 
-    match task_service
-        .edit_task(
+    match task_orchestrator
+        .edit_and_reschedule_task(
             task_id,
             user_id,
             new_title,
             new_description,
             new_datetime_input,
             is_weekly_task,
-            timezone_service.clone(),
         )
         .await
     {

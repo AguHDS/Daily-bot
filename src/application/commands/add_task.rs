@@ -1,6 +1,5 @@
-use crate::application::commands::utils::{
-    get_string_option, notification_method_as_str, parse_notification_method,
-};
+
+use crate::application::commands::utils::get_string_option;
 use crate::application::services::TaskOrchestrator;
 use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::entities::task::NotificationMethod;
@@ -18,78 +17,41 @@ pub fn register_add_task_command() -> CreateCommand {
     CreateCommand::new("add_task")
         .description("Add a new task")
         .add_option(
-            CreateCommandOption::new(CommandOptionType::String, "title", "Task title")
-                .required(true),
-        )
-        .add_option(
             CreateCommandOption::new(
                 CommandOptionType::String,
                 "task_type",
-                "Task type: 'single' or 'weekly'",
+                "Task type: single or weekly",
             )
             .add_string_choice("Single (specific date/time)", "single")
-            .add_string_choice("Weekly (repeats on specific days and hour)", "weekly")
+            .add_string_choice("Weekly (repeats on specific days)", "weekly")
             .required(true),
         )
         .add_option(
             CreateCommandOption::new(
                 CommandOptionType::String,
-                "notify",
-                "Notification method: DM, Channel, Both",
+                "notification_method",
+                "How to notify you when the task is due",
             )
-            .add_string_choice("DM", "DM")
-            .add_string_choice("Channel", "Channel")
-            .add_string_choice("Both", "Both")
+            .add_string_choice("Direct Message", "DM")
+            .add_string_choice("Channel Notification", "Channel")
+            .add_string_choice("Both DM and Channel", "Both")
             .required(true),
-        )
-        .add_option(
-            CreateCommandOption::new(
-                CommandOptionType::String,
-                "description",
-                "Task description (optional)",
-            )
-            .required(false),
         )
 }
 
 pub async fn run_add_task(
     ctx: &Context,
     command: &CommandInteraction,
-    task_orchestrator: &Arc<TaskOrchestrator>,
+    _task_orchestrator: &Arc<TaskOrchestrator>,
     timezone_service: &Arc<TimezoneService>,
 ) {
     let options = &command.data.options;
-
-    // extract title (required) - usar índice 0 (puede ser "message" o "title")
-    let title = match get_string_option(options, 0) {
-        Some(title) => title,
-        None => {
-            let response = CreateInteractionResponse::Message(
-                CreateInteractionResponseMessage::default()
-                    .content("❌ Missing or invalid title")
-                    .ephemeral(true),
-            );
-            let _ = command.create_response(&ctx.http, response).await;
-            return;
-        }
-    };
-
-    let task_type = get_string_option(options, 1).unwrap_or("single".to_string());
-    let notification_method = get_string_option(options, 2)
-        .map(|s| parse_notification_method(&s))
-        .unwrap_or(NotificationMethod::DM);
-
-    if task_type != "single" && task_type != "weekly" {
-        let response = CreateInteractionResponse::Message(
-            CreateInteractionResponseMessage::default()
-                .content("❌ Invalid task type. Must be 'single' or 'weekly'")
-                .ephemeral(true),
-        );
-        let _ = command.create_response(&ctx.http, response).await;
-        return;
-    }
-
-    // get user's timezone to display in the placeholder
+    
+    // Extract task_type and notification_method from command options
+    let task_type = get_string_option(options, 0).unwrap_or("single".to_string());
+    let notification_method = get_string_option(options, 1).unwrap_or("DM".to_string());
+    
+    // get user's timezone to display in the datetime placeholder
     let user_id = command.user.id.get();
     let user_timezone_info = match timezone_service.get_user_timezone(user_id).await {
         Ok(Some(timezone)) => match timezone_service.get_current_time_for_timezone(&timezone) {
@@ -99,23 +61,28 @@ pub async fn run_add_task(
         _ => "".to_string(),
     };
 
-    let datetime_input = if task_type == "weekly" {
-        CreateInputText::new(
-            InputTextStyle::Short,
-            "Format: Mon,Tue,Wed,Thu,Fri,Sat,Sun 16:00",
-            "weekly_datetime",
-        )
-        .required(true)
-        .placeholder("Example: Mon,Wed,Fri 14:30")
+    // Create modal inputs for remaining fields (title, datetime, description)
+    let title_input = CreateInputText::new(
+        InputTextStyle::Short,
+        "Title",
+        "task_title",
+    )
+    .required(true)
+    .placeholder("Enter a descriptive title for your task");
+
+    let datetime_input = CreateInputText::new(
+        InputTextStyle::Short,
+        if task_type == "weekly" { "Days & Time (e.g., Mon,Wed,Fri 14:30)" } else { "Date & Time (YYYY-MM-DD HH:MM)" },
+        "datetime",
+    )
+    .required(true)
+    .placeholder(if task_type == "weekly" {
+        "Example: Mon,Wed,Fri 14:30".to_string()
+    } else if user_timezone_info.is_empty() {
+        "Example: 2025-11-01 15:30".to_string()
     } else {
-        CreateInputText::new(
-            InputTextStyle::Short,
-            "Enter Date & Time (YYYY-MM-DD HH:MM)",
-            "single_datetime",
-        )
-        .required(true)
-        .placeholder(format!("{}", user_timezone_info))
-    };
+        format!("Current time in your timezone: {}", user_timezone_info)
+    });
 
     let description_input = CreateInputText::new(
         InputTextStyle::Paragraph,
@@ -125,19 +92,16 @@ pub async fn run_add_task(
     .required(false)
     .placeholder("Add more details about your task...");
 
-    let datetime_row = CreateActionRow::InputText(datetime_input);
-    let description_row = CreateActionRow::InputText(description_input);
+    // Encode task_type and notification_method in modal custom_id for processing
+    let modal_custom_id = format!("add_task_modal|{}|{}", task_type, notification_method);
 
-    // pass task data in custom_id for modal processing
-    let modal_custom_id = format!(
-        "{}_task_modal|{}|{}",
-        task_type,
-        title.replace('|', "-"), // sanitize to avoid parsing issues
-        notification_method_as_str(&notification_method)
-    );
-
-    let modal = CreateModal::new(&modal_custom_id, "📅 Create Task")
-        .components(vec![datetime_row, description_row]);
+    // Create modal with remaining input fields
+    let modal = CreateModal::new(&modal_custom_id, "📅 Create New Task")
+        .components(vec![
+            CreateActionRow::InputText(title_input),
+            CreateActionRow::InputText(datetime_input),
+            CreateActionRow::InputText(description_input),
+        ]);
 
     if let Err(err) = command
         .create_response(&ctx.http, CreateInteractionResponse::Modal(modal))
@@ -155,21 +119,31 @@ pub async fn process_task_modal_input(
     timezone_service: &Arc<TimezoneService>,
     config_service: &Arc<crate::application::services::config_service::ConfigService>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // parse custom_id: "single_task_modal|title|NotificationMethod"
+    // Parse custom_id to get task_type and notification_method: "add_task_modal|task_type|notification_method"
     let parts: Vec<&str> = modal.data.custom_id.split('|').collect();
     if parts.len() != 3 {
         return Err("Invalid modal custom_id format".into());
     }
-
-    let task_type = parts[0].strip_suffix("_task_modal").unwrap_or("single");
-    let title = parts[1].to_string();
-    let notification_method = parse_notification_method(parts[2]);
-
-    // extract both inputs from modal
-    let datetime_input = modal
+    
+    let task_type = parts[1];
+    let notification_method_str = parts[2];
+    
+    // Extract inputs from the modal (3 fields: title, datetime, description)
+    let title = modal
         .data
         .components
         .get(0)
+        .and_then(|row| row.components.get(0))
+        .and_then(|c| match c {
+            ActionRowComponent::InputText(input) => input.value.clone(),
+            _ => None,
+        })
+        .ok_or("No title input found")?;
+
+    let datetime_input = modal
+        .data
+        .components
+        .get(1)
         .and_then(|row| row.components.get(0))
         .and_then(|c| match c {
             ActionRowComponent::InputText(input) => input.value.clone(),
@@ -180,13 +154,21 @@ pub async fn process_task_modal_input(
     let description_input = modal
         .data
         .components
-        .get(1)
+        .get(2)
         .and_then(|row| row.components.get(0))
         .and_then(|c| match c {
             ActionRowComponent::InputText(input) => input.value.clone(),
             _ => None,
         })
-        .unwrap_or_default(); // description optional
+        .unwrap_or_default(); // description is optional
+
+    // Parse notification method (already validated by dropdown selection)
+    let notification_method = match notification_method_str {
+        "DM" => NotificationMethod::DM,
+        "Channel" => NotificationMethod::Channel,
+        "Both" => NotificationMethod::Both,
+        _ => NotificationMethod::DM, // fallback, though this shouldn't happen with dropdowns
+    };
 
     // get user and guild info from modal
     let user_id = modal.user.id.get();
@@ -246,7 +228,7 @@ pub async fn process_task_modal_input(
         .handle_add_task_modal(
             user_id,
             guild_id,
-            task_type,
+            &task_type,
             title.clone(),
             description_input,
             notification_method,

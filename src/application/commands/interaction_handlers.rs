@@ -165,9 +165,7 @@ pub async fn handle_modal(
             .unwrap_or_else(|err| {
                 eprintln!("Failed to process edit task modal: {}", err);
             });
-        } else if custom_id.starts_with("single_task_modal")
-            || custom_id.starts_with("weekly_task_modal")
-        {
+        } else if custom_id.starts_with("add_task_modal|") {
             crate::application::commands::add_task::process_task_modal_input(
                 ctx,
                 &modal,

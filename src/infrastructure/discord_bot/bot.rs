@@ -1,14 +1,18 @@
 use crate::application::services::config_service::ConfigService;
 use crate::application::services::notification_service::NotificationService;
+use crate::application::services::task_orchestrator::TaskOrchestrator;
 use crate::application::services::task_service::TaskService;
 use crate::application::services::timezone_service::TimezoneService;
-use crate::domain::repositories::{ConfigRepository, TaskRepository, UserPreferencesRepository};
+use crate::domain::repositories::{
+    ConfigRepository, TaskRepository, TaskSchedulerRepository, UserPreferencesRepository,
+};
 use crate::infrastructure::repositories::json_config_repository::JsonConfigRepository;
 use crate::infrastructure::repositories::{
     json_task_repository::JsonTaskRepository,
     json_user_preferences_repository::JsonUserPreferencesRepository,
+    memory_scheduler_repository::MemorySchedulerRepository,
 };
-use crate::infrastructure::scheduler::scheduler_tokio::start_scheduler;
+use crate::infrastructure::scheduler::priority_queue_scheduler::PriorityQueueScheduler;
 use crate::infrastructure::timezone::timezone_manager::TimezoneManager;
 use serenity::model::{application::Interaction, gateway::Ready, id::GuildId};
 use serenity::prelude::*;
@@ -16,6 +20,7 @@ use std::sync::Arc;
 
 pub struct CommandHandler {
     pub task_service: Arc<TaskService>,
+    pub task_orchestrator: Arc<TaskOrchestrator>,
     pub config_service: Arc<ConfigService>,
     pub notification_service: Arc<NotificationService>,
     pub timezone_service: Arc<TimezoneService>,
@@ -55,14 +60,14 @@ impl EventHandler for CommandHandler {
             self.register_commands_for_guild(&ctx, guild_id).await;
         }
 
-        // Start scheduler with services
-        start_scheduler(
+        // start priority queue
+        PriorityQueueScheduler::start_scheduler(
             Arc::new(ctx),
-            self.task_service.clone(),
+            self.task_orchestrator.clone(),
             self.config_service.clone(),
             self.notification_service.clone(),
         );
-        println!("Scheduler started");
+        println!("🚀 Priority Queue Scheduler started");
     }
 
     /// Handle when the bot joins a new guild
@@ -91,7 +96,7 @@ impl EventHandler for CommandHandler {
                     crate::application::commands::add_task::run_add_task(
                         &ctx,
                         command,
-                        &self.task_service,
+                        &self.task_orchestrator, // ✅ CAMBIAR: Usar orchestrator en lugar de task_service
                         &self.timezone_service,
                     )
                     .await;
@@ -116,7 +121,7 @@ impl EventHandler for CommandHandler {
                     crate::application::commands::interaction_handlers::handle_command(
                         &ctx,
                         &interaction,
-                        &self.task_service,
+                        &self.task_service, // Mantener task_service para consultas
                         &self.config_service,
                         &self.notification_service,
                         &self.timezone_service,
@@ -128,7 +133,7 @@ impl EventHandler for CommandHandler {
                 crate::application::commands::interaction_handlers::handle_component(
                     &ctx,
                     &interaction,
-                    &self.task_service,
+                    &self.task_service, // Mantener task_service para consultas
                     &self.timezone_service,
                 )
                 .await;
@@ -137,7 +142,7 @@ impl EventHandler for CommandHandler {
                 crate::application::commands::interaction_handlers::handle_modal(
                     &ctx,
                     &interaction,
-                    &self.task_service,
+                    &self.task_orchestrator, // ✅ CAMBIAR: Usar orchestrator para creación/edición
                     &self.timezone_service,
                 )
                 .await;
@@ -163,6 +168,8 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     let user_prefs_repo: Arc<dyn UserPreferencesRepository> = Arc::new(
         JsonUserPreferencesRepository::new("./data/user_timezone_config.json"),
     );
+    let task_scheduler: Arc<dyn TaskSchedulerRepository> =
+        Arc::new(MemorySchedulerRepository::new()); // ✅ NUEVO
 
     // initialize timezone manager
     let timezone_manager = Arc::new(
@@ -184,8 +191,16 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         timezone_service.clone(),
     ));
 
+    // initialize task orchestrator
+    let task_orchestrator = Arc::new(TaskOrchestrator::new(
+        task_service.clone(),
+        task_scheduler.clone(),
+        timezone_service.clone(),
+    ));
+
     let handler = CommandHandler {
         task_service: task_service.clone(),
+        task_orchestrator: task_orchestrator.clone(), // ✅ NUEVO
         config_service: config_service.clone(),
         notification_service: notification_service.clone(),
         timezone_service: timezone_service.clone(),

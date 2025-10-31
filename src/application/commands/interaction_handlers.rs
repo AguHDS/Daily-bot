@@ -1,3 +1,4 @@
+use crate::application::services::TaskOrchestrator;
 use crate::application::services::config_service::ConfigService;
 use crate::application::services::notification_service::NotificationService;
 use crate::application::services::task_service::TaskService;
@@ -144,7 +145,7 @@ pub async fn handle_component(
 pub async fn handle_modal(
     ctx: &Context,
     interaction: &Interaction,
-    task_service: &Arc<TaskService>,
+    task_orchestrator: &Arc<TaskOrchestrator>,
     timezone_service: &Arc<TimezoneService>,
 ) {
     if let Some(modal) = interaction.clone().modal_submit() {
@@ -154,7 +155,7 @@ pub async fn handle_modal(
             crate::application::commands::edit_task::process_edit_task_modal(
                 ctx,
                 &modal,
-                task_service,
+                task_orchestrator,
                 timezone_service,
             )
             .await
@@ -167,7 +168,7 @@ pub async fn handle_modal(
             crate::application::commands::add_task::process_task_modal_input(
                 ctx,
                 &modal,
-                task_service,
+                task_orchestrator,
                 timezone_service,
             )
             .await

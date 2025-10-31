@@ -11,7 +11,7 @@ use std::sync::Arc;
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct TaskService {
-    task_repo: Arc<dyn TaskRepository>,
+    pub(crate) task_repo: Arc<dyn TaskRepository>,
     #[allow(dead_code)]
     config_repo: Arc<dyn ConfigRepository>,
     #[allow(dead_code)]
@@ -31,37 +31,6 @@ impl TaskService {
             config_repo,
             notification_service,
             timezone_service,
-        }
-    }
-
-    // === SCHEDULER BUSINESS LOGIC ===
-
-    /// Get all tasks for scheduling (no user filtering)
-    pub async fn get_all_tasks_for_scheduling(&self) -> Vec<Task> {
-        self.task_repo.list_tasks()
-    }
-
-    /// Handle task after notification (remove single tasks / reschedule recurring tasks)
-    pub async fn handle_post_notification_task(&self, task: &Task) -> Result<(), String> {
-        if task.recurrence.is_none() {
-            // single task - remove after notification
-            Ok(())
-        } else {
-            // recurring task (weekly) - reschedule for next occurrence
-            if let Some(next_time) = task.next_occurrence() {
-                match self.task_repo.update_task_time(task.id, next_time) {
-                    Ok(_) => Ok(()),
-                    Err(err) => Err(format!(
-                        "Failed to reschedule recurring task #{}: {}",
-                        task.id, err
-                    )),
-                }
-            } else {
-                Err(format!(
-                    "Could not determine next occurrence for recurring task #{}",
-                    task.id
-                ))
-            }
         }
     }
 
@@ -562,53 +531,18 @@ impl TaskService {
         )
     }
 
-    // === COMMAND HANDLERS (for interaction_handlers) ===
+    // === SCHEDULER BUSINESS LOGIC ===
 
-    pub async fn handle_add_task_modal(
-        &self,
-        user_id: u64,
-        guild_id: u64,
-        task_type: &str,
-        title: String,
-        description: String,
-        notification_method: NotificationMethod,
-        input_str: String,
-        timezone_service: Arc<TimezoneService>,
-    ) -> Result<u64, String> {
-        let (scheduled_time, recurrence) = timezone_service
-            .parse_task_input(&input_str, task_type, user_id)
-            .await?;
+    /// Get all tasks for scheduling (no user filtering)
+    pub async fn get_all_tasks_for_scheduling(&self) -> Vec<Task> {
+        self.task_repo.list_tasks()
+    }
 
-        match task_type {
-            "single" => {
-                self.create_single_task(
-                    user_id,
-                    guild_id,
-                    title,
-                    description,
-                    scheduled_time.unwrap(),
-                    notification_method,
-                )
-                .await
-            }
-            "weekly" => {
-                if let Some(Recurrence::Weekly { days, hour, minute }) = recurrence {
-                    self.create_weekly_task(
-                        user_id,
-                        guild_id,
-                        title,
-                        description,
-                        days,
-                        hour,
-                        minute,
-                        notification_method,
-                    )
-                    .await
-                } else {
-                    Err("Invalid recurrence type".to_string())
-                }
-            }
-            _ => Err(format!("Unknown task type: {}", task_type)),
-        }
+    /// Get task by ID (for scheduler and orchestrator use)
+    pub async fn get_task_by_id(&self, task_id: u64) -> Option<Task> {
+        self.task_repo
+            .list_tasks()
+            .into_iter()
+            .find(|task| task.id == task_id)
     }
 }

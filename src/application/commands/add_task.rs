@@ -1,7 +1,7 @@
 use crate::application::commands::utils::{
     get_string_option, notification_method_as_str, parse_notification_method,
 };
-use crate::application::services::task_service::TaskService;
+use crate::application::services::TaskOrchestrator;
 use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::entities::task::NotificationMethod;
 use serenity::{
@@ -14,7 +14,6 @@ use serenity::{
     prelude::*,
 };
 use std::sync::Arc;
-
 pub fn register_add_task_command() -> CreateCommand {
     CreateCommand::new("add_task")
         .description("Add a new task")
@@ -56,7 +55,7 @@ pub fn register_add_task_command() -> CreateCommand {
 pub async fn run_add_task(
     ctx: &Context,
     command: &CommandInteraction,
-    _task_service: &Arc<TaskService>,
+    task_orchestrator: &Arc<TaskOrchestrator>,
     timezone_service: &Arc<TimezoneService>,
 ) {
     let options = &command.data.options;
@@ -152,7 +151,7 @@ pub async fn run_add_task(
 pub async fn process_task_modal_input(
     ctx: &Context,
     modal: &ModalInteraction,
-    task_service: &Arc<TaskService>,
+    task_orchestrator: &Arc<TaskOrchestrator>,
     timezone_service: &Arc<TimezoneService>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // parse custom_id: "single_task_modal|title|NotificationMethod"
@@ -218,8 +217,8 @@ pub async fn process_task_modal_input(
         }
     }
 
-    // delegate to TaskService for business logic - now passing title and description
-    match task_service
+    // delegate to TaskOrchestrator for business logic - now passing title and description
+    match task_orchestrator
         .handle_add_task_modal(
             user_id,
             guild_id,
@@ -228,7 +227,6 @@ pub async fn process_task_modal_input(
             description_input,
             notification_method,
             datetime_input,
-            timezone_service.clone(),
         )
         .await
     {

@@ -1,4 +1,5 @@
 use crate::application::services::config_service::ConfigService;
+use crate::domain::entities::scheduled_task::ScheduledTask;
 use crate::domain::entities::task::{NotificationMethod, Task};
 use chrono::Local;
 use serenity::builder::{CreateEmbed, CreateMessage};
@@ -37,6 +38,31 @@ impl NotificationService {
             }
         }
         Ok(())
+    }
+
+    /// Sends notification for a scheduled task (used by priority queue scheduler)
+    pub async fn send_task_notification_from_scheduled(
+        &self,
+        scheduled_task: &ScheduledTask,
+        ctx: &Context,
+        config_service: &ConfigService,
+    ) -> Result<(), String> {
+        // Create a minimal Task struct for notification purposes
+        let temp_task = Task {
+            id: scheduled_task.task_id,
+            user_id: scheduled_task.user_id,
+            guild_id: scheduled_task.guild_id,
+            title: scheduled_task.title.clone(),
+            description: None, // We don't store description in ScheduledTask for efficiency
+            scheduled_time: Some(scheduled_task.scheduled_time),
+            recurrence: None, // Not needed for notification
+            notification_method: scheduled_task.notification_method.clone(),
+            channel_id: None,
+        };
+
+        // Send notification using existing method
+        self.send_task_notification(&temp_task, ctx, config_service, Some(scheduled_task.guild_id))
+            .await
     }
 
     /// Send a direct message to the user with an embed

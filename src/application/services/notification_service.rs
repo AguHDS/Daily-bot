@@ -46,22 +46,32 @@ impl NotificationService {
         scheduled_task: &ScheduledTask,
         ctx: &Context,
         config_service: &ConfigService,
+        task_orchestrator: &crate::application::services::task_orchestrator::TaskOrchestrator,
     ) -> Result<(), String> {
-        // Create a minimal Task struct for notification purposes
-        let temp_task = Task {
-            id: scheduled_task.task_id,
-            user_id: scheduled_task.user_id,
-            guild_id: scheduled_task.guild_id,
-            title: scheduled_task.title.clone(),
-            description: None, // We don't store description in ScheduledTask for efficiency
-            scheduled_time: Some(scheduled_task.scheduled_time),
-            recurrence: None, // Not needed for notification
-            notification_method: scheduled_task.notification_method.clone(),
-            channel_id: None,
+        // Fetch the full task details including description
+        let full_task = task_orchestrator.get_task_by_id(scheduled_task.task_id).await;
+        
+        // Create task struct for notification - use full task if available, otherwise fallback to scheduled task data
+        let notification_task = if let Some(task) = full_task {
+            task
+        } else {
+            // Fallback if full task is not found (shouldn't normally happen)
+            Task {
+                id: scheduled_task.task_id,
+                user_id: scheduled_task.user_id,
+                guild_id: scheduled_task.guild_id,
+                title: scheduled_task.title.clone(),
+                description: None,
+                scheduled_time: Some(scheduled_task.scheduled_time),
+                recurrence: None,
+                notification_method: scheduled_task.notification_method.clone(),
+                channel_id: None,
+                mention: scheduled_task.mention.clone(),
+            }
         };
 
         // Send notification using existing method
-        self.send_task_notification(&temp_task, ctx, config_service, Some(scheduled_task.guild_id))
+        self.send_task_notification(&notification_task, ctx, config_service, Some(scheduled_task.guild_id))
             .await
     }
 
@@ -113,11 +123,19 @@ impl NotificationService {
 
         let channel = ChannelId::new(channel_id);
 
-        let user_mention = format!("<@{}>", task.user_id);
+        // Create notification message with mention based on task configuration
+        let notification_content = if let Some(mention) = &task.mention {
+            // Use the specified mention(s) instead of the task creator
+            format!("Your task is ready! {}", mention)
+        } else {
+            // Fallback to mentioning the task creator (should not happen for Channel notifications due to validation)
+            let user_mention = format!("<@{}>", task.user_id);
+            format!("Hey {}, your task is ready!", user_mention)
+        };
 
         let embed = self.create_task_embed(task);
         let msg = CreateMessage::new()
-            .content(format!("Hey {}, your task is ready!", user_mention))
+            .content(notification_content)
             .embed(embed);
 
         channel

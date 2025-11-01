@@ -19,6 +19,17 @@ pub fn register_add_task_command() -> CreateCommand {
         .add_option(
             CreateCommandOption::new(
                 CommandOptionType::String,
+                "notification_method",
+                "How to notify you when the task is due",
+            )
+            .add_string_choice("Direct Message", "DM")
+            .add_string_choice("Channel Notification (requires @mention)", "Channel")
+            .add_string_choice("Both DM and Channel", "Both")
+            .required(true),
+        )
+        .add_option(
+            CreateCommandOption::new(
+                CommandOptionType::String,
                 "task_type",
                 "Task type: single or weekly",
             )
@@ -29,13 +40,10 @@ pub fn register_add_task_command() -> CreateCommand {
         .add_option(
             CreateCommandOption::new(
                 CommandOptionType::String,
-                "notification_method",
-                "How to notify you when the task is due",
+                "mention",
+                "@mention users/roles (e.g., @jared @members) - REQUIRED for Channel notifications",
             )
-            .add_string_choice("Direct Message", "DM")
-            .add_string_choice("Channel Notification", "Channel")
-            .add_string_choice("Both DM and Channel", "Both")
-            .required(true),
+            .required(false), // Optional parameter must come after required ones
         )
 }
 
@@ -47,9 +55,10 @@ pub async fn run_add_task(
 ) {
     let options = &command.data.options;
     
-    // Extract task_type and notification_method from command options
-    let task_type = get_string_option(options, 0).unwrap_or("single".to_string());
-    let notification_method = get_string_option(options, 1).unwrap_or("DM".to_string());
+    // Extract parameters: notification_method, task_type, mention (Discord requires required params first)
+    let notification_method = get_string_option(options, 0).unwrap_or("DM".to_string());
+    let task_type = get_string_option(options, 1).unwrap_or("single".to_string());
+    let mention = get_string_option(options, 2).unwrap_or_default(); // optional mention (must be last)
     
     // get user's timezone to display in the datetime placeholder
     let user_id = command.user.id.get();
@@ -92,8 +101,14 @@ pub async fn run_add_task(
     .required(false)
     .placeholder("Add more details about your task...");
 
-    // Encode task_type and notification_method in modal custom_id for processing
-    let modal_custom_id = format!("add_task_modal|{}|{}", task_type, notification_method);
+    // Encode task_type, notification_method, and mention in modal custom_id for processing
+    // Replace pipe characters to avoid parsing issues
+    let mention_safe = if mention.is_empty() {
+        "NONE".to_string()
+    } else {
+        mention.replace('|', "PIPE").replace('\n', "NEWLINE")
+    };
+    let modal_custom_id = format!("add_task_modal|{}|{}|{}", task_type, notification_method, mention_safe);
 
     // Create modal with remaining input fields
     let modal = CreateModal::new(&modal_custom_id, "📅 Create New Task")
@@ -119,14 +134,22 @@ pub async fn process_task_modal_input(
     timezone_service: &Arc<TimezoneService>,
     config_service: &Arc<crate::application::services::config_service::ConfigService>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Parse custom_id to get task_type and notification_method: "add_task_modal|task_type|notification_method"
+    // Parse custom_id to get task_type, notification_method, and mention: "add_task_modal|task_type|notification_method|mention"
     let parts: Vec<&str> = modal.data.custom_id.split('|').collect();
-    if parts.len() != 3 {
-        return Err("Invalid modal custom_id format".into());
+    if parts.len() != 4 {
+        return Err("Invalid modal custom_id format - expected 4 parts".into());
     }
     
     let task_type = parts[1];
     let notification_method_str = parts[2];
+    let mention_safe = parts[3];
+    
+    // Decode mention by reversing the safe encoding
+    let mention = if mention_safe == "NONE" {
+        None
+    } else {
+        Some(mention_safe.replace("PIPE", "|").replace("NEWLINE", "\n"))
+    };
     
     // Extract inputs from the modal (3 fields: title, datetime, description)
     let title = modal
@@ -169,6 +192,30 @@ pub async fn process_task_modal_input(
         "Both" => NotificationMethod::Both,
         _ => NotificationMethod::DM, // fallback, though this shouldn't happen with dropdowns
     };
+
+    // Validate mention usage: 
+    // 1. Mentions are only allowed with "Channel" notification method
+    // 2. Mentions are REQUIRED when "Channel" notification method is selected
+    if mention.is_some() && !matches!(notification_method, NotificationMethod::Channel) {
+        let response = CreateInteractionResponse::Message(
+            CreateInteractionResponseMessage::default()
+                .content("❌ **Mention feature is only available when notification method \"Channel\" is selected**\n\nPlease use `/add_task` again with `notification_method:Channel` to use mentions.")
+                .ephemeral(true),
+        );
+        modal.create_response(&ctx.http, response).await?;
+        return Ok(());
+    }
+
+    // NEW: Require mention when Channel notification is selected
+    if matches!(notification_method, NotificationMethod::Channel) && mention.is_none() {
+        let response = CreateInteractionResponse::Message(
+            CreateInteractionResponseMessage::default()
+                .content("❌ **Mention is required for Channel notifications**\n\nWhen using `notification_method:Channel`, you must specify who to mention (e.g., `mention:@jared @members`).\n\nPlease use `/add_task` again and include the `mention` parameter.")
+                .ephemeral(true),
+        );
+        modal.create_response(&ctx.http, response).await?;
+        return Ok(());
+    }
 
     // get user and guild info from modal
     let user_id = modal.user.id.get();
@@ -223,7 +270,11 @@ pub async fn process_task_modal_input(
         }
     }
 
-    // delegate to TaskOrchestrator for business logic - now passing title and description
+    // Save values for response message before they're moved
+    let is_channel_notification = matches!(notification_method, NotificationMethod::Channel);
+    let has_mention = mention.is_some();
+
+    // delegate to TaskOrchestrator for business logic - now passing title, description, and mention
     match task_orchestrator
         .handle_add_task_modal(
             user_id,
@@ -233,11 +284,17 @@ pub async fn process_task_modal_input(
             description_input,
             notification_method,
             datetime_input,
+            mention,
         )
         .await
     {
         Ok(_task_id) => {
-            let response_content = format!("✅ Task **{}** created successfully!", title);
+            let response_content = if is_channel_notification && has_mention {
+                format!("✅ Task **{}** created successfully with mention!", title)
+            } else {
+                format!("✅ Task **{}** created successfully!", title)
+            };
+            
             let response = CreateInteractionResponse::Message(
                 CreateInteractionResponseMessage::default().content(response_content),
             );

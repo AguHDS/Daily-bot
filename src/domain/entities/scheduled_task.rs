@@ -13,6 +13,7 @@ pub struct ScheduledTask {
     pub notification_method: crate::domain::entities::task::NotificationMethod,
     pub is_recurring: bool,
     pub is_deleted: bool, // For lazy deletion - infrastructure concern but stored in entity
+    pub mention: Option<String>, // Optional @user or @role mention for notifications
 }
 
 impl ScheduledTask {
@@ -30,6 +31,7 @@ impl ScheduledTask {
             notification_method: task.notification_method.clone(),
             is_recurring: task.recurrence.is_some(),
             is_deleted: false, // Always start as not deleted
+            mention: task.mention.clone(), // Copy mention for notifications
         }
     }
 

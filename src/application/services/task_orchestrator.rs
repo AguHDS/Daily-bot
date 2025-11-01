@@ -37,6 +37,7 @@ impl TaskOrchestrator {
         description: String,
         notification_method: NotificationMethod,
         input_str: String,
+        mention: Option<String>,
     ) -> Result<u64, String> {
         let (scheduled_time, recurrence) = self
             .timezone_service
@@ -52,6 +53,7 @@ impl TaskOrchestrator {
                     description,
                     scheduled_time.unwrap(),
                     notification_method,
+                    mention,
                 )
                 .await?
             }
@@ -66,6 +68,7 @@ impl TaskOrchestrator {
                         hour,
                         minute,
                         notification_method,
+                        mention,
                     )
                     .await?
                 } else {
@@ -86,6 +89,7 @@ impl TaskOrchestrator {
         description: String,
         scheduled_time: chrono::DateTime<chrono::Utc>,
         notification_method: NotificationMethod,
+        mention: Option<String>,
     ) -> Result<u64, String> {
         // delegate to task service
         let task_id = self
@@ -97,6 +101,7 @@ impl TaskOrchestrator {
                 description,
                 scheduled_time,
                 notification_method,
+                mention,
             )
             .await?;
 
@@ -115,6 +120,7 @@ impl TaskOrchestrator {
         hour: u8,
         minute: u8,
         notification_method: NotificationMethod,
+        mention: Option<String>,
     ) -> Result<u64, String> {
         // delegate to task service
         let task_id = self
@@ -128,6 +134,7 @@ impl TaskOrchestrator {
                 hour,
                 minute,
                 notification_method,
+                mention,
             )
             .await?;
 

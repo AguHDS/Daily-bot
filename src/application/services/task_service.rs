@@ -44,6 +44,7 @@ impl TaskService {
         description: String,
         scheduled_time: DateTime<Utc>,
         notification_method: NotificationMethod,
+        mention: Option<String>,
     ) -> Result<u64, String> {
         if scheduled_time < Utc::now() {
             return Err("Cannot create a task in the past".to_string());
@@ -63,6 +64,7 @@ impl TaskService {
             None,
             notification_method,
             None,
+            mention,
         );
 
         // persist
@@ -79,6 +81,7 @@ impl TaskService {
         hour: u8,
         minute: u8,
         notification_method: NotificationMethod,
+        mention: Option<String>,
     ) -> Result<u64, String> {
         if title.trim().is_empty() {
             return Err("Task title cannot be empty".to_string());
@@ -113,6 +116,7 @@ impl TaskService {
             recurrence,
             notification_method,
             None,
+            mention,
         );
 
         // persist

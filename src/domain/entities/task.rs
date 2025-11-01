@@ -12,6 +12,7 @@ pub struct Task {
     pub recurrence: Option<Recurrence>,
     pub notification_method: NotificationMethod,
     pub channel_id: Option<u64>,
+    pub mention: Option<String>, // Optional @user or @role mention for notifications
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +47,7 @@ impl Task {
         recurrence: Option<Recurrence>,
         notification_method: NotificationMethod,
         channel_id: Option<u64>,
+        mention: Option<String>,
     ) -> Self {
         Self {
             id,
@@ -57,6 +59,7 @@ impl Task {
             recurrence,
             notification_method,
             channel_id,
+            mention,
         }
     }
 

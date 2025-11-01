@@ -108,7 +108,7 @@ impl PriorityQueueScheduler {
 
         // send notification
         if let Err(_err) = notification_service
-            .send_task_notification_from_scheduled(&scheduled_task, ctx, config_service)
+            .send_task_notification_from_scheduled(&scheduled_task, ctx, config_service, task_orchestrator)
             .await
         {
             // reinsert task if notification failed (retry in 1 minute)

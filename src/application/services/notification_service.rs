@@ -176,7 +176,6 @@ impl NotificationService {
             let local_time = scheduled_time.with_timezone(&Local);
             let formatted = local_time.format("%A, %d - %B - %Y at %H:%M").to_string();
 
-            // Agregamos un field al final para la hora en gris
             embed = embed.field("\u{2800}", format!("> {}", formatted), false);
         }
 

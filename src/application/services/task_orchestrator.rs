@@ -158,6 +158,7 @@ impl TaskOrchestrator {
                 self.task_service
                     .task_repo
                     .update_task_time(task.id, next_time)
+                    .await
                     .map_err(|e| {
                         format!("Failed to reschedule recurring task #{}: {}", task.id, e)
                     })?;

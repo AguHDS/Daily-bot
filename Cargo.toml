@@ -22,3 +22,6 @@ chrono-tz = "0.10.4"
 fuzzy-matcher = "0.3.7"
 async-trait = "0.1.89"
 lazy_static = "1.5.0"
+rusqlite = { version = "0.37.0", features = ["bundled"] }
+tokio-rusqlite = "0.7.0"
+anyhow = "1.0.100"

@@ -11,3 +11,7 @@ user_timezone_config.json
 
 #/target
 memory.md
+info-bot.*
+TODO.md
+src/infrastructure/database/sqlite_commands.txt
+data/*

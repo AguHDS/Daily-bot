@@ -34,5 +34,6 @@ pub trait TaskSchedulerRepository: Send + Sync {
     async fn remove_task(&self, task_id: u64) -> Result<(), SchedulerError>;
 
     /// Check if there are any pending tasks
+    #[allow(dead_code)]
     async fn has_pending_tasks(&self) -> Result<bool, SchedulerError>;
 }

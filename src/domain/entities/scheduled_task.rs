@@ -36,11 +36,13 @@ impl ScheduledTask {
     }
 
     /// Mark this task as deleted for lazy deletion
+    #[allow(dead_code)]
     pub fn mark_deleted(&mut self) {
         self.is_deleted = true;
     }
 
     /// Check if this task has been marked for deletion
+    #[allow(dead_code)]
     pub fn is_marked_for_deletion(&self) -> bool {
         self.is_deleted
     }

@@ -1,3 +1,4 @@
+// src/infrastructure/discord_bot/bot.rs
 use crate::application::services::config_service::ConfigService;
 use crate::application::services::notification_service::NotificationService;
 use crate::application::services::task_orchestrator::TaskOrchestrator;
@@ -6,11 +7,12 @@ use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::repositories::{
     ConfigRepository, TaskRepository, TaskSchedulerRepository, UserPreferencesRepository,
 };
-use crate::infrastructure::repositories::json_config_repository::JsonConfigRepository;
+use crate::infrastructure::database::DatabaseManager;
 use crate::infrastructure::repositories::{
-    json_task_repository::JsonTaskRepository,
-    json_user_preferences_repository::JsonUserPreferencesRepository,
-    memory_scheduler_repository::MemorySchedulerRepository,
+    sqlite_config_repository::SqliteConfigRepository,
+    sqlite_scheduler_repository::SqliteSchedulerRepository,
+    sqlite_task_repository::SqliteTaskRepository,
+    sqlite_user_preferences_repository::SqliteUserPreferencesRepository,
 };
 use crate::infrastructure::scheduler::priority_queue_scheduler::PriorityQueueScheduler;
 use crate::infrastructure::timezone::timezone_manager::TimezoneManager;
@@ -24,11 +26,11 @@ pub struct CommandHandler {
     pub config_service: Arc<ConfigService>,
     pub notification_service: Arc<NotificationService>,
     pub timezone_service: Arc<TimezoneService>,
-    pub memory_scheduler_repo: Arc<MemorySchedulerRepository>,
+    pub sqlite_scheduler_repo: Arc<SqliteSchedulerRepository>,
 }
 
 impl CommandHandler {
-    /// Helper function to register commands for a specific guild
+    /// Register slash commands for a specific guild
     async fn register_commands_for_guild(&self, ctx: &Context, guild_id: GuildId) {
         let commands = vec![
             crate::application::commands::register_add_task_command(),
@@ -40,12 +42,8 @@ impl CommandHandler {
             crate::application::commands::timezone::register_timezone_command(),
         ];
 
-        match guild_id.set_commands(&ctx.http, commands).await {
-            Ok(_) => println!("Commands registered for guild {}", guild_id),
-            Err(e) => eprintln!(
-                "Failed to register commands for guild {}: {}",
-                guild_id, e
-            ),
+        if let Err(e) = guild_id.set_commands(&ctx.http, commands).await {
+            eprintln!("Failed to register commands for guild {}: {}", guild_id, e);
         }
     }
 }
@@ -55,47 +53,42 @@ impl EventHandler for CommandHandler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         println!("Bot ready as {}", ready.user.name);
 
-        // register commands for existing guilds
-        for guild_status in ready.guilds {
-            let guild_id: GuildId = guild_status.id;
-            self.register_commands_for_guild(&ctx, guild_id).await;
+        for g in ready.guilds {
+            self.register_commands_for_guild(&ctx, g.id).await;
         }
 
-        // initialize scheduler with existing tasks
-        if let Err(e) = self.task_orchestrator.initialize_scheduler_with_existing_tasks().await {
-            eprintln!("Failed to initialize scheduler with existing tasks: {}", e);
+        // Load scheduled tasks on startup
+        if let Err(e) = self
+            .task_orchestrator
+            .initialize_scheduler_with_existing_tasks()
+            .await
+        {
+            eprintln!("Failed to initialize scheduler: {}", e);
         }
 
-        // start priority queue
+        // Start priority queue worker loop
         PriorityQueueScheduler::start_scheduler(
             Arc::new(ctx),
             self.task_orchestrator.clone(),
             self.config_service.clone(),
             self.notification_service.clone(),
-            self.memory_scheduler_repo.clone(),
+            self.sqlite_scheduler_repo.clone(),
         );
-
     }
 
-    /// Handle when the bot joins a new guild
     async fn guild_create(
         &self,
         ctx: Context,
         guild: serenity::model::guild::Guild,
         is_new: Option<bool>,
     ) {
-        println!("Bot joined new guild: {} ({})", guild.name, guild.id);
+        println!("Bot joined guild: {} ({})", guild.name, guild.id);
 
-        // only register commands when is a new server (not one on cache)
         if is_new.unwrap_or(false) {
-            println!("Registering commands for new guild...");
             self.register_commands_for_guild(&ctx, guild.id).await;
-        } else {
-            println!("Guild was cached, skipping command registration");
         }
     }
 
-    /// Decide what to do depending on user's interaction type with the bot
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         match &interaction {
             Interaction::Command(command) => match command.data.name.as_str() {
@@ -103,7 +96,7 @@ impl EventHandler for CommandHandler {
                     crate::application::commands::add_task::run_add_task(
                         &ctx,
                         command,
-                        &self.task_orchestrator, // ✅ CAMBIAR: Usar orchestrator en lugar de task_service
+                        &self.task_orchestrator,
                         &self.timezone_service,
                     )
                     .await;
@@ -128,8 +121,8 @@ impl EventHandler for CommandHandler {
                     crate::application::commands::interaction_handlers::handle_command(
                         &ctx,
                         &interaction,
-                        &self.task_service, // Mantener task_service para consultas
-                        &self.task_orchestrator, // Add orchestrator for remove operations
+                        &self.task_service,
+                        &self.task_orchestrator,
                         &self.config_service,
                         &self.notification_service,
                         &self.timezone_service,
@@ -141,8 +134,8 @@ impl EventHandler for CommandHandler {
                 crate::application::commands::interaction_handlers::handle_component(
                     &ctx,
                     &interaction,
-                    &self.task_service, // Mantener task_service para consultas
-                    &self.task_orchestrator, // Add orchestrator for remove operations
+                    &self.task_service,
+                    &self.task_orchestrator,
                     &self.timezone_service,
                 )
                 .await;
@@ -151,7 +144,7 @@ impl EventHandler for CommandHandler {
                 crate::application::commands::interaction_handlers::handle_modal(
                     &ctx,
                     &interaction,
-                    &self.task_orchestrator, // ✅ CAMBIAR: Usar orchestrator para creación/edición
+                    &self.task_orchestrator,
                     &self.timezone_service,
                     &self.config_service,
                 )
@@ -162,39 +155,47 @@ impl EventHandler for CommandHandler {
     }
 }
 
-/// Factory that initializes repositories, services, and the discord bot, and then boots it
+/// Composition root: builds all repos, services, and bot handler
 pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     let token = std::env::var("DISCORD_TOKEN").expect("Expected token in environment");
+
     let intents = GatewayIntents::GUILDS
         | GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::GUILD_MEMBERS
         | GatewayIntents::GUILD_MESSAGE_REACTIONS;
 
-    // initialize repositories
-    let task_repo: Arc<dyn TaskRepository> = Arc::new(JsonTaskRepository::new("./data/tasks.json"));
-    let config_repo: Arc<dyn ConfigRepository> = Arc::new(JsonConfigRepository::new(
-        "./data/channel_notification.json",
-    ));
-    let user_prefs_repo: Arc<dyn UserPreferencesRepository> = Arc::new(
-        JsonUserPreferencesRepository::new("./data/user_timezone_config.json"),
-    );
-    // Create memory scheduler repository - need both concrete and trait references
-    let memory_scheduler_repo = Arc::new(MemorySchedulerRepository::new());
-    let task_scheduler: Arc<dyn TaskSchedulerRepository> = memory_scheduler_repo.clone();
+    let db_path = "./data/bot.db";
 
-    // initialize timezone manager
+    let db_manager = Arc::new(DatabaseManager::new(db_path)?);
+    db_manager.initialize_database().await?;
+
+    // SQLite repositories (all async now)
+    let task_repo: Arc<dyn TaskRepository> = Arc::new(SqliteTaskRepository::new(db_path)?);
+    let config_repo: Arc<dyn ConfigRepository> =
+        Arc::new(SqliteConfigRepository::new(db_path).await?);
+    let user_prefs_repo: Arc<dyn UserPreferencesRepository> =
+        Arc::new(SqliteUserPreferencesRepository::new(db_path)?);
+
+    // Persistent task scheduler repository
+    let sqlite_scheduler_repo = Arc::new(SqliteSchedulerRepository::new(db_path)?);
+    let task_scheduler: Arc<dyn TaskSchedulerRepository> = sqlite_scheduler_repo.clone();
+
+    // Timezone manager
     let timezone_manager = Arc::new(
         TimezoneManager::new()
             .map_err(|e| format!("Failed to initialize timezone manager: {}", e))?,
     );
 
-    // initialize services
+    // Services
     let notification_service = Arc::new(NotificationService::new());
+
     let config_service = Arc::new(ConfigService::new(config_repo.clone()));
+
     let timezone_service = Arc::new(TimezoneService::new(
         user_prefs_repo.clone(),
-        timezone_manager.clone(),
+        timezone_manager,
     ));
+
     let task_service = Arc::new(TaskService::new(
         task_repo.clone(),
         config_repo.clone(),
@@ -202,7 +203,6 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         timezone_service.clone(),
     ));
 
-    // initialize task orchestrator
     let task_orchestrator = Arc::new(TaskOrchestrator::new(
         task_service.clone(),
         task_scheduler.clone(),
@@ -210,12 +210,12 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     let handler = CommandHandler {
-        task_service: task_service.clone(),
-        task_orchestrator: task_orchestrator.clone(),
-        config_service: config_service.clone(),
-        notification_service: notification_service.clone(),
-        timezone_service: timezone_service.clone(),
-        memory_scheduler_repo: memory_scheduler_repo.clone(),
+        task_service,
+        task_orchestrator,
+        config_service,
+        notification_service,
+        timezone_service,
+        sqlite_scheduler_repo: sqlite_scheduler_repo,
     };
 
     let mut client = Client::builder(&token, intents)

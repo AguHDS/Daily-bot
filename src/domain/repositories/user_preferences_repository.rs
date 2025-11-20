@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 use crate::domain::entities::user_preferences::UserPreferences;
 
@@ -11,6 +11,19 @@ pub enum RepositoryError {
     InvalidData(String),
     StorageError(String),
 }
+
+impl Display for RepositoryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RepositoryError::NotFound => write!(f, "Resource not found"),
+            RepositoryError::AlreadyExists => write!(f, "Resource already exists"),
+            RepositoryError::InvalidData(msg) => write!(f, "Invalid data: {}", msg),
+            RepositoryError::StorageError(msg) => write!(f, "Storage error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for RepositoryError {}
 
 pub type Result<T> = std::result::Result<T, RepositoryError>;
 

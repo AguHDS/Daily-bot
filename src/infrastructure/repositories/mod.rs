@@ -1,10 +1,17 @@
-pub mod json_config_repository;
-pub mod json_storage;
-pub mod json_task_repository;
-pub mod json_user_preferences_repository;
-pub mod config_repository;
 pub mod memory_scheduler_repository;
+pub mod sqlite_config_repository;
+pub mod sqlite_task_repository;
+pub mod sqlite_user_preferences_repository;
+pub mod sqlite_scheduler_repository;
 
-// Scheduler repository - used for concrete instantiation in bot.rs
 #[allow(unused_imports)]
 pub use memory_scheduler_repository::MemorySchedulerRepository;
+
+#[allow(unused_imports)]
+pub use sqlite_config_repository::SqliteConfigRepository;
+#[allow(unused_imports)]
+pub use sqlite_task_repository::SqliteTaskRepository;
+#[allow(unused_imports)]
+pub use sqlite_user_preferences_repository::SqliteUserPreferencesRepository;
+#[allow(unused_imports)]
+pub use sqlite_scheduler_repository::SqliteSchedulerRepository;

@@ -6,7 +6,6 @@ use serenity::{
 };
 use std::sync::Arc;
 
-/// Register the /set_notification_channel command
 pub fn register_set_notification_channel_command() -> CreateCommand {
     CreateCommand::new("set_notification_channel")
         .description("Set the channel where task notifications will be sent (Admin only)")
@@ -20,14 +19,13 @@ pub fn register_set_notification_channel_command() -> CreateCommand {
         )
 }
 
-/// Run the command to set the notification channel
 pub async fn run_set_notification_channel(
     ctx: &Context,
     command: &CommandInteraction,
     config_service: &Arc<ConfigService>,
 ) {
-    // defer response immediately to avoid timeout
-    if let Err(_e) = command
+    // Defer early to avoid Discord timeouts
+    if let Err(_) = command
         .create_response(
             &ctx.http,
             CreateInteractionResponse::Defer(
@@ -39,6 +37,7 @@ pub async fn run_set_notification_channel(
         return;
     }
 
+    // Permission check
     let has_permission = command.member.as_ref().map_or(false, |member| {
         member
             .permissions
@@ -56,6 +55,7 @@ pub async fn run_set_notification_channel(
         return;
     }
 
+    // Validate guild
     let guild_id = match config_service
         .validate_guild_context(command.guild_id.map(|gid| gid.get()))
         .await
@@ -72,7 +72,7 @@ pub async fn run_set_notification_channel(
         }
     };
 
-    // Extract channel ID from command option
+    // Extract channel
     let channel_id = match command
         .data
         .options
@@ -93,7 +93,7 @@ pub async fn run_set_notification_channel(
         }
     };
 
-    // Delegate to ConfigService for business logic
+    // Call service
     match config_service
         .set_notification_channel(guild_id, channel_id.get())
         .await

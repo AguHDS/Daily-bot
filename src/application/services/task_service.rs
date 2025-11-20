@@ -68,7 +68,7 @@ impl TaskService {
         );
 
         // persist
-        self.task_repo.add_task(task)
+        self.task_repo.add_task(task).await
     }
 
     pub async fn create_weekly_task(
@@ -120,7 +120,7 @@ impl TaskService {
         );
 
         // persist
-        self.task_repo.add_task(task)
+        self.task_repo.add_task(task).await
     }
 
     fn calculate_first_occurrence(
@@ -157,6 +157,7 @@ impl TaskService {
     pub async fn get_user_tasks(&self, user_id: u64) -> Vec<Task> {
         self.task_repo
             .list_tasks()
+            .await
             .into_iter()
             .filter(|task| task.user_id == user_id)
             .collect()
@@ -170,10 +171,10 @@ impl TaskService {
         user_id: u64,
     ) -> Result<Option<Task>, String> {
         // verify that the task belongs to the user
-        let tasks = self.task_repo.list_tasks();
+        let tasks = self.task_repo.list_tasks().await;
         if let Some(task) = tasks.into_iter().find(|t| t.id == task_id) {
             if task.user_id == user_id {
-                let removed = self.task_repo.remove_task(task_id);
+                let removed = self.task_repo.remove_task(task_id).await;
                 if removed {
                     return Ok(Some(task));
                 } else {
@@ -186,7 +187,7 @@ impl TaskService {
         Ok(None)
     }
     pub async fn remove_all_user_tasks(&self, user_id: u64) -> Result<usize, String> {
-        let count = self.task_repo.remove_all_by_user(user_id);
+        let count = self.task_repo.remove_all_by_user(user_id).await;
         Ok(count)
     }
 
@@ -442,7 +443,7 @@ impl TaskService {
     // === EDIT TASK BUSINESS LOGIC ===
 
     pub async fn get_user_tasks_for_editing(&self, user_id: u64) -> (Vec<Task>, Vec<Task>) {
-        let tasks = self.task_repo.list_tasks();
+        let tasks = self.task_repo.list_tasks().await;
         let user_tasks: Vec<Task> = tasks.into_iter().filter(|t| t.user_id == user_id).collect();
 
         let single_tasks: Vec<Task> = user_tasks
@@ -463,6 +464,7 @@ impl TaskService {
     pub async fn get_task_for_editing(&self, task_id: u64, user_id: u64) -> Option<Task> {
         self.task_repo
             .list_tasks()
+            .await
             .into_iter()
             .find(|t| t.id == task_id && t.user_id == user_id)
     }
@@ -533,19 +535,21 @@ impl TaskService {
             new_recurrence,
             None,
         )
+        .await
     }
 
     // === SCHEDULER BUSINESS LOGIC ===
 
     /// Get all tasks for scheduling (no user filtering)
     pub async fn get_all_tasks_for_scheduling(&self) -> Vec<Task> {
-        self.task_repo.list_tasks()
+        self.task_repo.list_tasks().await
     }
 
     /// Get task by ID (for scheduler and orchestrator use)
     pub async fn get_task_by_id(&self, task_id: u64) -> Option<Task> {
         self.task_repo
             .list_tasks()
+            .await
             .into_iter()
             .find(|task| task.id == task_id)
     }

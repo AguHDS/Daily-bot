@@ -1,6 +1,7 @@
 use crate::domain::repositories::ConfigRepository;
 use std::sync::Arc;
 
+/// ConfigService adds validation and business logic around guild notification config.
 #[derive(Clone)]
 pub struct ConfigService {
     config_repo: Arc<dyn ConfigRepository>,
@@ -11,6 +12,7 @@ impl ConfigService {
         Self { config_repo }
     }
 
+    /// Validates input and forwards to async repository method.
     pub async fn set_notification_channel(
         &self,
         guild_id: u64,
@@ -19,21 +21,23 @@ impl ConfigService {
         if guild_id == 0 {
             return Err("Invalid guild ID".to_string());
         }
-
         if channel_id == 0 {
             return Err("Invalid channel ID".to_string());
         }
 
         self.config_repo
-            .set_notification_channel(guild_id, channel_id);
+            .set_notification_channel(guild_id, channel_id)
+            .await;
 
         Ok(())
     }
 
+    /// Reads guild notification config asynchronously.
     pub async fn get_notification_channel(&self, guild_id: u64) -> Option<u64> {
-        self.config_repo.get_notification_channel(guild_id)
+        self.config_repo.get_notification_channel(guild_id).await
     }
 
+    /// Ensures command is executed inside a guild context.
     pub async fn validate_guild_context(&self, guild_id: Option<u64>) -> Result<u64, String> {
         guild_id.ok_or_else(|| "This command can only be used in a server".to_string())
     }

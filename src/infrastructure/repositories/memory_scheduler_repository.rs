@@ -8,6 +8,7 @@ use crate::domain::repositories::task_scheduler_repository::{
 };
 
 /// In-memory implementation of TaskSchedulerRepository using a priority queue with lazy deletion
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct MemorySchedulerRepository {
     // ScheduledTask already implements correct ordering (earliest times first, deleted tasks sink)
@@ -17,7 +18,9 @@ pub struct MemorySchedulerRepository {
 }
 
 // Configuration for lazy deletion cleanup
+#[allow(dead_code)]
 const CLEANUP_THRESHOLD_RATIO: f64 = 0.25; // Cleanup when 25% of tasks are deleted
+#[allow(dead_code)]
 const MIN_TASKS_FOR_CLEANUP: usize = 100;  // Don't cleanup unless we have at least 100 tasks
 
 impl MemorySchedulerRepository {
@@ -30,11 +33,13 @@ impl MemorySchedulerRepository {
     }
 
     /// Get a receiver for wake-up notifications
+    #[allow(dead_code)]
     pub fn subscribe_wakeup(&self) -> broadcast::Receiver<()> {
         self.wakeup_sender.subscribe()
     }
 
     /// Cleanup deleted tasks if threshold is exceeded (periodic maintenance)
+    #[allow(dead_code)]
     async fn cleanup_if_needed(&self, tasks: &mut std::collections::BinaryHeap<ScheduledTask>) {
         let total_count = tasks.len();
         

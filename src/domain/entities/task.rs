@@ -1,6 +1,21 @@
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
 use serde::{Deserialize, Serialize};
 
+// Auxiliary structs for serialization in SQLite repository
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeeklyRecurrenceData {
+    pub days: Vec<Weekday>,
+    pub hour: u8,
+    pub minute: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EveryXDaysRecurrenceData {
+    pub interval: u32,
+    pub hour: u8,
+    pub minute: u8,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: u64,

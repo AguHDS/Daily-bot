@@ -16,11 +16,11 @@ impl PriorityQueueScheduler {
         task_orchestrator: Arc<TaskOrchestrator>,
         config_service: Arc<ConfigService>,
         notification_service: Arc<NotificationService>,
-        memory_scheduler: Arc<crate::infrastructure::repositories::memory_scheduler_repository::MemorySchedulerRepository>,
+        scheduler_repo: Arc<crate::infrastructure::repositories::sqlite_scheduler_repository::SqliteSchedulerRepository>,
     ) {
         tokio::spawn(async move {
             // Subscribe to wake-up notifications
-            let mut wakeup_receiver = memory_scheduler.subscribe_wakeup();
+            let mut wakeup_receiver = scheduler_repo.subscribe_wakeup();
             
             loop {
                 match Self::scheduler_iteration(

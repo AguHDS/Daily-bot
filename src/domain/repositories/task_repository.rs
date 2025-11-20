@@ -1,10 +1,12 @@
 use crate::domain::{NotificationMethod, Recurrence, Task};
 use chrono::{DateTime, Utc};
+use async_trait::async_trait;
 
+#[async_trait]
 pub trait TaskRepository: Send + Sync {
-    fn add_task(&self, task: Task) -> Result<u64, String>;
+    async fn add_task(&self, task: Task) -> Result<u64, String>;
 
-    fn edit_task(
+    async fn edit_task(
         &self,
         task_id: u64,
         new_title: Option<String>,
@@ -14,12 +16,12 @@ pub trait TaskRepository: Send + Sync {
         new_notification_method: Option<NotificationMethod>,
     ) -> Result<Task, String>;
 
-    fn remove_task(&self, task_id: u64) -> bool;
+    async fn remove_task(&self, task_id: u64) -> bool;
 
-    fn remove_all_by_user(&self, user_id: u64) -> usize;
+    async fn remove_all_by_user(&self, user_id: u64) -> usize;
 
-    fn list_tasks(&self) -> Vec<Task>;
+    async fn list_tasks(&self) -> Vec<Task>;
 
     /// Updates only the scheduled time of a task (used for recurring weekly task)
-    fn update_task_time(&self, task_id: u64, new_time: DateTime<Utc>) -> Result<(), String>;
+    async fn update_task_time(&self, task_id: u64, new_time: DateTime<Utc>) -> Result<(), String>;
 }

@@ -440,6 +440,11 @@ impl TaskService {
         (single_tasks, recurrent_tasks)
     }
 
+    /// Get total count of all tasks in the system (admin only)
+    pub async fn get_total_task_count(&self) -> Result<u64, String> {
+        self.task_repo.get_total_task_count().await
+    }
+
     // === EDIT TASK BUSINESS LOGIC ===
 
     pub async fn get_user_tasks_for_editing(&self, user_id: u64) -> (Vec<Task>, Vec<Task>) {

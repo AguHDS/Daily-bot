@@ -6,6 +6,7 @@ use serenity::prelude::Context;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::time::{Duration, sleep};
+use tracing::{error};
 
 /// Efficient scheduler using priority queue
 pub struct PriorityQueueScheduler;
@@ -43,7 +44,7 @@ impl PriorityQueueScheduler {
                         }
                     }
                     Err(e) => {
-                        eprintln!("Scheduler iteration error: {}", e);
+                        error!("Scheduler iteration error: {}", e);
                         // wait 1m before retrying in case of error
                         sleep(Duration::from_secs(60)).await;
                     }

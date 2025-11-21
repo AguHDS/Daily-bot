@@ -2,6 +2,7 @@ use serenity::all::{
     CommandInteraction, CreateCommand, CreateInteractionResponse, CreateInteractionResponseMessage,
 };
 use serenity::prelude::*;
+use tracing::{error};
 
 pub fn register_help_command() -> CreateCommand {
     CreateCommand::new("help").description("Show available commands")
@@ -25,6 +26,6 @@ pub async fn run_help_command(ctx: &Context, command: &CommandInteraction) {
     );
 
     if let Err(err) = command.create_response(&ctx.http, builder).await {
-        eprintln!("Error executing /help: {:?}", err);
+        error!("Error executing /help: {:?}", err);
     }
 }

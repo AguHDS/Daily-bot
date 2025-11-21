@@ -1,4 +1,3 @@
-// src/infrastructure/discord_bot/bot.rs
 use crate::application::services::config_service::ConfigService;
 use crate::application::services::notification_service::NotificationService;
 use crate::application::services::task_orchestrator::TaskOrchestrator;
@@ -19,6 +18,7 @@ use crate::infrastructure::timezone::timezone_manager::TimezoneManager;
 use serenity::model::{application::Interaction, gateway::Ready, id::GuildId};
 use serenity::prelude::*;
 use std::sync::Arc;
+use tracing::{error, info};
 
 pub struct CommandHandler {
     pub task_service: Arc<TaskService>,
@@ -32,7 +32,11 @@ pub struct CommandHandler {
 impl CommandHandler {
     /// Register slash commands for a specific guild
     async fn register_commands_for_guild(&self, ctx: &Context, guild_id: GuildId) {
-        let commands = vec![
+        // Test server ID
+        const ALLOWED_GUILD_ID: u64 = 1422605167580155914;
+
+        // Commands available for ALL guilds
+        let mut commands = vec![
             crate::application::commands::register_add_task_command(),
             crate::application::commands::register_list_tasks_command(),
             crate::application::commands::register_remove_task_command(),
@@ -42,8 +46,13 @@ impl CommandHandler {
             crate::application::commands::timezone::register_timezone_command(),
         ];
 
+        // Only add stats command if it's the allowed server
+        if guild_id.get() == ALLOWED_GUILD_ID {
+            commands.push(crate::application::commands::register_stats_command());
+        }
+
         if let Err(e) = guild_id.set_commands(&ctx.http, commands).await {
-            eprintln!("Failed to register commands for guild {}: {}", guild_id, e);
+            error!("Failed to register commands for guild {}: {}", guild_id, e);
         }
     }
 }
@@ -51,7 +60,7 @@ impl CommandHandler {
 #[serenity::async_trait]
 impl EventHandler for CommandHandler {
     async fn ready(&self, ctx: Context, ready: Ready) {
-        println!("Bot ready as {}", ready.user.name);
+        info!("Bot ready as {}", ready.user.name);
 
         for g in ready.guilds {
             self.register_commands_for_guild(&ctx, g.id).await;
@@ -63,7 +72,7 @@ impl EventHandler for CommandHandler {
             .initialize_scheduler_with_existing_tasks()
             .await
         {
-            eprintln!("Failed to initialize scheduler: {}", e);
+            error!("Failed to initialize scheduler: {}", e);
         }
 
         // Start priority queue worker loop
@@ -74,6 +83,8 @@ impl EventHandler for CommandHandler {
             self.notification_service.clone(),
             self.sqlite_scheduler_repo.clone(),
         );
+
+        info!("Scheduler started successfully");
     }
 
     async fn guild_create(
@@ -82,8 +93,6 @@ impl EventHandler for CommandHandler {
         guild: serenity::model::guild::Guild,
         is_new: Option<bool>,
     ) {
-        println!("Bot joined guild: {} ({})", guild.name, guild.id);
-
         if is_new.unwrap_or(false) {
             self.register_commands_for_guild(&ctx, guild.id).await;
         }
@@ -91,45 +100,55 @@ impl EventHandler for CommandHandler {
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         match &interaction {
-            Interaction::Command(command) => match command.data.name.as_str() {
-                "add_task" => {
-                    crate::application::commands::add_task::run_add_task(
-                        &ctx,
-                        command,
-                        &self.task_orchestrator,
-                        &self.timezone_service,
-                    )
-                    .await;
+            Interaction::Command(command) => {
+                match command.data.name.as_str() {
+                    "add_task" => {
+                        crate::application::commands::add_task::run_add_task(
+                            &ctx,
+                            command,
+                            &self.task_orchestrator,
+                            &self.timezone_service,
+                        )
+                        .await;
+                    }
+                    "set_notification_channel" => {
+                        crate::application::commands::set_notification_channel::run_set_notification_channel(
+                            &ctx,
+                            command,
+                            &self.config_service,
+                        )
+                        .await;
+                    }
+                    "timezone" => {
+                        crate::application::commands::timezone::run_timezone_command(
+                            &ctx,
+                            command,
+                            &self.timezone_service,
+                        )
+                        .await;
+                    }
+                    "stats" => {
+                        crate::application::commands::stats::run_stats(
+                            &ctx,
+                            command,
+                            &self.task_service,
+                        )
+                        .await;
+                    }
+                    _ => {
+                        crate::application::commands::interaction_handlers::handle_command(
+                            &ctx,
+                            &interaction,
+                            &self.task_service,
+                            &self.task_orchestrator,
+                            &self.config_service,
+                            &self.notification_service,
+                            &self.timezone_service,
+                        )
+                        .await;
+                    }
                 }
-                "set_notification_channel" => {
-                    crate::application::commands::set_notification_channel::run_set_notification_channel(
-                        &ctx,
-                        command,
-                        &self.config_service,
-                    )
-                    .await;
-                }
-                "timezone" => {
-                    crate::application::commands::timezone::run_timezone_command(
-                        &ctx,
-                        command,
-                        &self.timezone_service,
-                    )
-                    .await;
-                }
-                _ => {
-                    crate::application::commands::interaction_handlers::handle_command(
-                        &ctx,
-                        &interaction,
-                        &self.task_service,
-                        &self.task_orchestrator,
-                        &self.config_service,
-                        &self.notification_service,
-                        &self.timezone_service,
-                    )
-                    .await;
-                }
-            },
+            }
             Interaction::Component(_) => {
                 crate::application::commands::interaction_handlers::handle_component(
                     &ctx,
@@ -168,6 +187,7 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
 
     let db_manager = Arc::new(DatabaseManager::new(db_path)?);
     db_manager.initialize_database().await?;
+    info!("Database initialized successfully");
 
     // SQLite repositories (all async now)
     let task_repo: Arc<dyn TaskRepository> = Arc::new(SqliteTaskRepository::new(db_path)?);

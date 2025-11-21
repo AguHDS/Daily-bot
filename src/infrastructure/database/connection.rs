@@ -3,6 +3,7 @@ use rusqlite::Connection;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
+use tracing::{info};
 
 /// Primary manager for SQLite database operations; provides async-friendly access to synchronous rusqlite connections using tokio's spawn_blocking.
 #[derive(Clone)]
@@ -59,17 +60,17 @@ impl DatabaseManager {
                     } else {
                         trimmed.to_string()
                     };
-                    println!("📝 Executing statement {}: {}", i + 1, preview);
+                    info!("Executing statement {}: {}", i + 1, preview);
 
                     match connection.execute(trimmed, []) {
-                        Ok(rows) => println!(
-                            "✅ Statement {} executed successfully (affected {} rows)",
+                        Ok(rows) => info!(
+                            "Statement {} executed successfully (affected {} rows)",
                             i + 1,
                             rows
                         ),
                         Err(e) => {
-                            println!("❌ ERROR in statement {}: {}", i + 1, e);
-                            println!("   Full statement: {}", trimmed);
+                            info!("ERROR in statement {}: {}", i + 1, e);
+                            info!(" Full statement: {}", trimmed);
                             return Err(e);
                         }
                     }

@@ -24,4 +24,7 @@ pub trait TaskRepository: Send + Sync {
 
     /// Updates only the scheduled time of a task (used for recurring weekly task)
     async fn update_task_time(&self, task_id: u64, new_time: DateTime<Utc>) -> Result<(), String>;
+
+    /// Get total count of all tasks in the system (admin only)
+    async fn get_total_task_count(&self) -> Result<u64, String>;
 }

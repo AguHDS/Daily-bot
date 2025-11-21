@@ -6,6 +6,7 @@ use crate::application::services::timezone_service::TimezoneService;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 use std::sync::Arc;
+use tracing::{error, info};
 
 /// Handle slash commands
 pub async fn handle_command(
@@ -54,12 +55,7 @@ pub async fn handle_command(
                 )
                 .await;
             }
-            "timezone" => {
-                // the timezone command is already handled directly in bot.rs
-                // this block should never be triggered
-                println!("Timezone command should be handled directly in bot.rs");
-            }
-            _ => println!("Command not recognized: {}", command.data.name),
+            _ => {}
         }
     }
 }
@@ -137,9 +133,6 @@ pub async fn handle_component(
             .await;
             return;
         }
-
-        // in this block, no handler was found
-        println!("Unhandled component with custom_id: {}", custom_id);
     }
 }
 
@@ -163,7 +156,7 @@ pub async fn handle_modal(
             )
             .await
             .unwrap_or_else(|err| {
-                eprintln!("Failed to process edit task modal: {}", err);
+                error!("Failed to process edit task modal: {}", err);
             });
         } else if custom_id.starts_with("add_task_modal|") {
             crate::application::commands::add_task::process_task_modal_input(
@@ -175,10 +168,10 @@ pub async fn handle_modal(
             )
             .await
             .unwrap_or_else(|err| {
-                eprintln!("Failed to process add task modal input: {}", err);
+                error!("Failed to process add task modal input: {}", err);
             });
         } else {
-            println!("Ignoring modal with unrecognized custom_id: {}", custom_id);
+            info!("Ignoring modal with unrecognized custom_id: {}", custom_id);
         }
     }
 }

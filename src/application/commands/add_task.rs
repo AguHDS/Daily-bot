@@ -13,6 +13,8 @@ use serenity::{
     prelude::*,
 };
 use std::sync::Arc;
+use tracing::{error};
+
 pub fn register_add_task_command() -> CreateCommand {
     CreateCommand::new("add_task")
         .description("Add a new task")
@@ -122,7 +124,7 @@ pub async fn run_add_task(
         .create_response(&ctx.http, CreateInteractionResponse::Modal(modal))
         .await
     {
-        eprintln!("Failed to show modal: {}", err);
+        error!("Failed to show modal: {}", err);
     }
 }
 
@@ -259,7 +261,7 @@ pub async fn process_task_modal_input(
             return Ok(());
         }
         Err(e) => {
-            eprintln!("Error getting user timezone: {:?}", e);
+            error!("Error getting user timezone: {:?}", e);
             let response = CreateInteractionResponse::Message(
                 CreateInteractionResponseMessage::default()
                     .content("❌ Error verifying timezone")

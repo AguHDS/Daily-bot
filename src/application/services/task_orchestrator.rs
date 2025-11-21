@@ -170,7 +170,10 @@ impl TaskOrchestrator {
                         .await
                         .map_err(|e| format!("Failed to reschedule task in scheduler: {:?}", e))?;
                 } else {
-                    return Err(format!("Updated task #{} not found in repository after rescheduling", task.id));
+                    return Err(format!(
+                        "Updated task #{} not found in repository after rescheduling",
+                        task.id
+                    ));
                 }
             } else {
                 return Err(format!(
@@ -186,10 +189,7 @@ impl TaskOrchestrator {
 
     /// Load all existing tasks into the scheduler at startup
     pub async fn initialize_scheduler_with_existing_tasks(&self) -> Result<(), String> {
-
-        
         let all_tasks = self.task_service.get_all_tasks_for_scheduling().await;
-        
 
         for task in all_tasks {
             if let Some(scheduled_time) = task.scheduled_time {
@@ -197,34 +197,50 @@ impl TaskOrchestrator {
                 self.task_scheduler
                     .add_scheduled_task(scheduled_task)
                     .await
-                    .map_err(|e| format!("Failed to schedule existing task #{}: {:?}", task.id, e))?;
-
+                    .map_err(|e| {
+                        format!("Failed to schedule existing task #{}: {:?}", task.id, e)
+                    })?;
             }
         }
         Ok(())
     }
 
     /// Get the next pending task from the scheduler (for priority queue scheduler)
-    pub async fn peek_next_scheduled_task(&self) -> Result<Option<ScheduledTask>, crate::domain::repositories::task_scheduler_repository::SchedulerError> {
+    pub async fn peek_next_scheduled_task(
+        &self,
+    ) -> Result<
+        Option<ScheduledTask>,
+        crate::domain::repositories::task_scheduler_repository::SchedulerError,
+    > {
         self.task_scheduler.peek_next_task().await
     }
 
     /// Remove and return the next pending task from the scheduler
-    pub async fn pop_next_scheduled_task(&self) -> Result<Option<ScheduledTask>, crate::domain::repositories::task_scheduler_repository::SchedulerError> {
+    pub async fn pop_next_scheduled_task(
+        &self,
+    ) -> Result<
+        Option<ScheduledTask>,
+        crate::domain::repositories::task_scheduler_repository::SchedulerError,
+    > {
         self.task_scheduler.pop_next_task().await
     }
 
     /// Add a scheduled task to the scheduler (used for retries)
-    pub async fn add_scheduled_task(&self, task: ScheduledTask) -> Result<(), crate::domain::repositories::task_scheduler_repository::SchedulerError> {
+    pub async fn add_scheduled_task(
+        &self,
+        task: ScheduledTask,
+    ) -> Result<(), crate::domain::repositories::task_scheduler_repository::SchedulerError> {
         self.task_scheduler.add_scheduled_task(task).await
     }
 
     // === USER-INITIATED TASK REMOVAL ===
 
     /// Remove a task initiated by user (removes from both repository and scheduler)
-    pub async fn remove_user_task(&self, task_id: u64, user_id: u64) -> Result<Option<crate::domain::entities::task::Task>, String> {
-
-
+    pub async fn remove_user_task(
+        &self,
+        task_id: u64,
+        user_id: u64,
+    ) -> Result<Option<crate::domain::entities::task::Task>, String> {
         // First remove from repository (includes permission check)
         let removed_task = self.task_service.remove_user_task(task_id, user_id).await?;
 
@@ -235,8 +251,6 @@ impl TaskOrchestrator {
                 .remove_task(task_id)
                 .await
                 .map_err(|e| format!("Failed to remove task from scheduler: {:?}", e))?;
-
-
         }
 
         Ok(removed_task)
@@ -244,11 +258,9 @@ impl TaskOrchestrator {
 
     /// Remove all tasks for a user (removes from both repository and scheduler)
     pub async fn remove_all_user_tasks(&self, user_id: u64) -> Result<usize, String> {
-
-
         // Get all user tasks before removal to know which scheduler entries to remove
         let user_tasks = self.task_service.get_user_tasks(user_id).await;
-        
+
         // Remove from repository
         let removed_count = self.task_service.remove_all_user_tasks(user_id).await?;
 
@@ -257,9 +269,10 @@ impl TaskOrchestrator {
             self.task_scheduler
                 .remove_task(task.id)
                 .await
-                .map_err(|e| format!("Failed to remove task #{} from scheduler: {:?}", task.id, e))?;
+                .map_err(|e| {
+                    format!("Failed to remove task #{} from scheduler: {:?}", task.id, e)
+                })?;
         }
-
 
         Ok(removed_count)
     }
@@ -277,7 +290,6 @@ impl TaskOrchestrator {
                     .add_scheduled_task(scheduled_task)
                     .await
                     .map_err(|e| format!("Failed to schedule task: {:?}", e))?;
-
             }
         }
         Ok(())
@@ -286,13 +298,21 @@ impl TaskOrchestrator {
     // === EDIT ORCHESTRATION ===
 
     pub async fn get_task_for_editing(&self, task_id: u64, user_id: u64) -> Option<Task> {
-        self.task_service.get_task_for_editing(task_id, user_id).await
+        self.task_service
+            .get_task_for_editing(task_id, user_id)
+            .await
     }
 
     pub async fn get_user_tasks_for_removal(
         &self,
         user_id: u64,
-    ) -> Result<(Vec<crate::domain::entities::task::Task>, Vec<crate::domain::entities::task::Task>), String> {
+    ) -> Result<
+        (
+            Vec<crate::domain::entities::task::Task>,
+            Vec<crate::domain::entities::task::Task>,
+        ),
+        String,
+    > {
         self.task_service.get_user_tasks_for_removal(user_id).await
     }
 
@@ -305,8 +325,6 @@ impl TaskOrchestrator {
         new_datetime_input: Option<String>,
         is_weekly_task: bool,
     ) -> Result<Task, String> {
-
-
         // execute editing in taskservice
         let edited_task = self
             .task_service
@@ -320,8 +338,6 @@ impl TaskOrchestrator {
                 self.timezone_service.clone(),
             )
             .await?;
-
-
 
         // first remove old task from scheduler
 
@@ -337,8 +353,6 @@ impl TaskOrchestrator {
                 .add_scheduled_task(scheduled_task)
                 .await
                 .map_err(|e| format!("Failed to reschedule: {:?}", e))?;
-        } else {
-            println!("[ORCHESTRATOR] Edited task #{} has no scheduled_time, not adding to scheduler", task_id);
         }
 
         Ok(edited_task)

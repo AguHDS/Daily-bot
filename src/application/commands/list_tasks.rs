@@ -6,6 +6,7 @@ use serenity::builder::{
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 use std::sync::Arc;
+use tracing::{error};
 
 pub fn register_list_tasks_command() -> CreateCommand {
     CreateCommand::new("list_tasks").description("📋 Show your current tasks")
@@ -32,6 +33,6 @@ pub async fn run_list_tasks(
     );
 
     if let Err(e) = command.create_response(&ctx.http, builder).await {
-        eprintln!("Failed to send list_tasks response: {}", e);
+        error!("Failed to send list_tasks response: {}", e);
     }
 }

@@ -357,6 +357,29 @@ impl TaskRepository for SqliteTaskRepository {
             .unwrap_or_else(|_| Vec::new())
     }
 
+    /// Get total count of all tasks in the system (admin only)
+    async fn get_total_task_count(&self) -> Result<u64, String> {
+        let conn = self.conn.clone();
+        
+        let count: Result<u64, String> = tokio::task::spawn_blocking(move || {
+            let conn = conn.lock().map_err(|e| e.to_string())?;
+            
+            let mut stmt = conn
+                .prepare("SELECT COUNT(*) FROM tasks")
+                .map_err(|e| e.to_string())?;
+                
+            let count: i64 = stmt
+                .query_row([], |row| row.get(0))
+                .map_err(|e| e.to_string())?;
+                
+            Ok(count as u64)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        
+        count
+    }
+
     async fn update_task_time(&self, task_id: u64, new_time: DateTime<Utc>) -> Result<(), String> {
         let conn = self.conn.clone();
         let ts = new_time.timestamp();

@@ -7,8 +7,10 @@ pub mod remove_task;
 pub mod set_notification_channel;
 pub mod timezone;
 pub mod utils;
+pub mod stats;
 
 pub use add_task::register_add_task_command;
 pub use help::register_help_command;
 pub use list_tasks::register_list_tasks_command;
 pub use remove_task::register_remove_task_command;
+pub use stats::register_stats_command;

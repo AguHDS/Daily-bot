@@ -7,8 +7,8 @@ use serenity::model::application::CommandInteraction;
 use serenity::model::colour::Colour;
 use serenity::prelude::*;
 use std::sync::Arc;
-
 use crate::application::services::timezone_service::TimezoneService;
+use tracing::{error};
 
 pub fn register_timezone_command() -> serenity::builder::CreateCommand {
     serenity::builder::CreateCommand::new("timezone")
@@ -151,7 +151,7 @@ async fn show_timezone_confirmation(
     let current_time = match timezone_service.get_current_time_for_timezone(timezone_id) {
         Ok(time) => time,
         Err(e) => {
-            eprintln!("Error getting current time: {:?}", e);
+            error!("Error getting current time: {:?}", e);
             let _ = command
                 .create_response(
                     &ctx.http,
@@ -266,7 +266,7 @@ pub async fn handle_timezone_select(
     let current_time = match timezone_service.get_current_time_for_timezone(&timezone_id) {
         Ok(time) => time,
         Err(e) => {
-            eprintln!("Error getting current time: {:?}", e);
+            error!("Error getting current time: {:?}", e);
             let _ = interaction
                 .create_response(
                     &ctx.http,
@@ -358,7 +358,7 @@ pub async fn handle_timezone_confirm(
                 .await;
         }
         Err(e) => {
-            eprintln!("Error setting timezone: {:?}", e);
+            error!("Error setting timezone: {:?}", e);
             let _ = interaction
                 .create_response(
                     &ctx.http,

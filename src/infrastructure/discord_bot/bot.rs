@@ -7,8 +7,11 @@ use crate::domain::repositories::{
     ConfigRepository, TaskRepository, TaskSchedulerRepository, UserPreferencesRepository,
 };
 use crate::features::server_specific::config::ServerConfig;
+use crate::features::server_specific::config::kick_config::KickConfig;
 use crate::features::server_specific::config::nickname_config::NicknameConfig;
-use crate::features::server_specific::{Feature, NicknameChangerService, NicknameScheduler};
+use crate::features::server_specific::{
+    Feature, KickScheduler, KickService, NicknameChangerService, NicknameScheduler,
+};
 use crate::infrastructure::database::DatabaseManager;
 use crate::infrastructure::repositories::{
     sqlite_config_repository::SqliteConfigRepository,
@@ -18,8 +21,11 @@ use crate::infrastructure::repositories::{
 };
 use crate::infrastructure::scheduler::priority_queue_scheduler::PriorityQueueScheduler;
 use crate::infrastructure::timezone::timezone_manager::TimezoneManager;
+use serenity::all::{
+    ComponentInteraction, CreateInteractionResponse, CreateInteractionResponseMessage, GuildId,
+    Interaction, Ready, UserId,
+};
 use serenity::http::Http;
-use serenity::model::{application::Interaction, gateway::Ready, id::GuildId};
 use serenity::prelude::*;
 use std::sync::Arc;
 use tracing::{debug, error, info};
@@ -32,6 +38,7 @@ pub struct CommandHandler {
     pub timezone_service: Arc<TimezoneService>,
     pub sqlite_scheduler_repo: Arc<SqliteSchedulerRepository>,
     pub nickname_changer_service: Option<Arc<NicknameChangerService>>,
+    pub kick_service: Option<Arc<KickService>>,
 }
 
 impl CommandHandler {
@@ -64,20 +71,157 @@ impl CommandHandler {
 
     /// Initialize joke features for specific server
     async fn initialize_joke_features(&self, guild_id: GuildId) {
-        let my_server_id = 1422605167580155914; // My server
+        let my_server_id = 1422605167580155914; // My server (Kutums)
 
         if guild_id.get() != my_server_id {
             return;
         }
 
-        info!("Initializing joke features for guild {}", guild_id);
+        info!("Initializing specific server features for guild {}", guild_id);
 
         // Start nickname scheduler if the service exists
         if let Some(nickname_service) = &self.nickname_changer_service {
             let scheduler = NicknameScheduler::new(nickname_service.clone());
             scheduler.start().await;
-            info!("Nickname scheduler started for guild {}", guild_id);
         }
+
+        // Start kick scheduler if the service exists
+        if let Some(kick_service) = &self.kick_service {
+            let scheduler = KickScheduler::new(kick_service.clone());
+            scheduler.start().await;
+        }
+    }
+
+    async fn handle_kick_buttons(&self, ctx: &Context, component: &ComponentInteraction) {
+        let custom_id = &component.data.custom_id;
+
+        match custom_id.as_str() {
+            "kick_yes" => {
+                self.handle_kick_decision(ctx, component, true).await;
+            }
+            "kick_no" => {
+                self.handle_kick_decision(ctx, component, false).await;
+            }
+            _ => {
+                debug!("Unknown button interaction: {}", custom_id);
+            }
+        }
+    }
+
+    async fn handle_kick_decision(
+        &self,
+        ctx: &Context,
+        component: &ComponentInteraction,
+        approved: bool,
+    ) {
+        let original_message = component.message.content.clone();
+
+        if original_message.is_empty() {
+            error!("No content in kick poll message");
+            return;
+        }
+
+        // Extract username from message
+        let server_name = extract_username_from_kick_message(&original_message);
+
+        if let (Some(kick_service), Some(server_name)) = (&self.kick_service, server_name) {
+            if approved {
+                // Find user ID by server name
+                if let Some(target) = self
+                    .find_target_by_server_name(&server_name, &ctx.http)
+                    .await
+                {
+                    match kick_service.execute_kick(target.user_id).await {
+                        Ok(_) => {
+                            let response = format!("{} kickeado.", server_name);
+                            let _ = component
+                                .create_response(
+                                    &ctx.http,
+                                    CreateInteractionResponse::UpdateMessage(
+                                        CreateInteractionResponseMessage::new()
+                                            .content(response)
+                                            .components(vec![]),
+                                    ),
+                                )
+                                .await;
+                        }
+                        Err(e) => {
+                            let response = format!("Error al kickear a {}: {}", server_name, e);
+                            let _ = component
+                                .create_response(
+                                    &ctx.http,
+                                    CreateInteractionResponse::UpdateMessage(
+                                        CreateInteractionResponseMessage::new()
+                                            .content(response)
+                                            .components(vec![]),
+                                    ),
+                                )
+                                .await;
+                            error!("Failed to kick user {}: {}", server_name, e);
+                        }
+                    }
+                } else {
+                    let response = format!("No se pudo encontrar al usuario: {}", server_name);
+                    let _ = component
+                        .create_response(
+                            &ctx.http,
+                            CreateInteractionResponse::UpdateMessage(
+                                CreateInteractionResponseMessage::new()
+                                    .content(response)
+                                    .components(vec![]),
+                            ),
+                        )
+                        .await;
+                }
+            } else {
+                let response = format!("bueno...");
+                let _ = component
+                    .create_response(
+                        &ctx.http,
+                        CreateInteractionResponse::UpdateMessage(
+                            CreateInteractionResponseMessage::new()
+                                .content(response)
+                                .components(vec![]),
+                        ),
+                    )
+                    .await;
+            }
+        } else {
+            error!("Kick service not available or username not found");
+        }
+    }
+
+    /// Find target by server name
+    async fn find_target_by_server_name(
+        &self,
+        server_name: &str,
+        http: &Http,
+    ) -> Option<&crate::features::server_specific::config::kick_config::KickTargetUser> {
+        if let Some(kick_service) = &self.kick_service {
+            let guild_id = GuildId::new(kick_service.server_config.server_id);
+
+            for target in &kick_service.kick_config.targets {
+                let user_id = UserId::new(target.user_id);
+
+                match guild_id.member(http, user_id).await {
+                    Ok(member) => {
+                        let target_server_name = member
+                            .nick
+                            .clone()
+                            .unwrap_or_else(|| member.user.name.clone());
+                        if target_server_name == server_name {
+                            return Some(target);
+                        }
+                    }
+                    Err(_) => {
+                        if target.display_name == server_name {
+                            return Some(target);
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
 }
 
@@ -119,7 +263,6 @@ impl EventHandler for CommandHandler {
         is_new: Option<bool>,
     ) {
         if is_new.unwrap_or(false) {
-            info!("Bot joined new guild: {} ({})", guild.name, guild.id);
             self.register_commands_for_guild(&ctx, guild.id).await;
             self.initialize_joke_features(guild.id).await;
         }
@@ -128,10 +271,6 @@ impl EventHandler for CommandHandler {
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         match &interaction {
             Interaction::Command(command) => {
-                info!(
-                    "Received command: {} from user: {}",
-                    command.data.name, command.user.id
-                );
                 match command.data.name.as_str() {
                     "add_task" => {
                         crate::application::commands::add_task::run_add_task(
@@ -180,16 +319,24 @@ impl EventHandler for CommandHandler {
                     }
                 }
             }
-            Interaction::Component(_) => {
-                debug!("Received component interaction");
-                crate::application::commands::interaction_handlers::handle_component(
-                    &ctx,
-                    &interaction,
-                    &self.task_service,
-                    &self.task_orchestrator,
-                    &self.timezone_service,
-                )
-                .await;
+            Interaction::Component(component) => {
+                debug!(
+                    "Received component interaction: {}",
+                    component.data.custom_id
+                );
+
+                if component.data.custom_id.starts_with("kick_") {
+                    self.handle_kick_buttons(&ctx, component).await;
+                } else {
+                    crate::application::commands::interaction_handlers::handle_component(
+                        &ctx,
+                        &interaction,
+                        &self.task_service,
+                        &self.task_orchestrator,
+                        &self.timezone_service,
+                    )
+                    .await;
+                }
             }
             Interaction::Modal(_) => {
                 debug!("Received modal interaction");
@@ -211,8 +358,6 @@ impl EventHandler for CommandHandler {
 
 /// Composition root: builds all repos, services, and bot handler
 pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
-    info!("Starting bot initialization...");
-
     let token = std::env::var("DISCORD_TOKEN").expect("Expected token in environment");
 
     let intents = GatewayIntents::GUILDS
@@ -264,7 +409,8 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         timezone_service.clone(),
     ));
 
-    let nickname_changer_service = initialize_joke_services(&token).await;
+    // Initialize nickname changer and kick services
+    let (nickname_changer_service, kick_service) = initialize_joke_services(&token).await;
 
     let handler = CommandHandler {
         task_service,
@@ -274,6 +420,7 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         timezone_service,
         sqlite_scheduler_repo,
         nickname_changer_service,
+        kick_service,
     };
 
     let mut client = Client::builder(&token, intents)
@@ -286,54 +433,92 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
 
 // ==================== Additional features for my server ====================
 
-async fn initialize_joke_services(token: &str) -> Option<Arc<NicknameChangerService>> {
+async fn initialize_joke_services(
+    token: &str,
+) -> (
+    Option<Arc<NicknameChangerService>>,
+    Option<Arc<KickService>>,
+) {
     let server_config = ServerConfig::my_server();
 
-    // Check if features are enabled
-    if !server_config
+    // Initialize nickname changer service
+    let nickname_service = if server_config
         .enabled_features
         .contains(&Feature::NicknameChanger)
     {
-        info!(
-            "No joke features enabled for server {}",
-            server_config.server_id
-        );
-        return None;
-    }
-
-    // Cargar configuración desde JSON
-    let nickname_config = match NicknameConfig::load() {
-        Ok(config) => config,
-        Err(e) => {
-            error!("Failed to load nickname config: {}", e);
-            return None;
+        match initialize_nickname_service(&server_config, token).await {
+            Ok(service) => Some(service),
+            Err(e) => {
+                error!("Failed to initialize nickname service: {}", e);
+                None
+            }
         }
+    } else {
+        None
     };
 
-    // Cargar pool de nicknames desde JSON
-    let nicknames_pool = match NicknameConfig::load_nicknames() {
-        Ok(nicknames) => nicknames,
-        Err(e) => {
-            error!("Failed to load nicknames pool: {}", e);
-            return None;
+    // Initialize kick service
+    let kick_service = if server_config.enabled_features.contains(&Feature::Kick) {
+        match initialize_kick_service(&server_config, token).await {
+            Ok(service) => Some(service),
+            Err(e) => {
+                error!("Failed to initialize kick service: {}", e);
+                None
+            }
         }
+    } else {
+        None
     };
+
+    (nickname_service, kick_service)
+}
+
+async fn initialize_nickname_service(
+    server_config: &ServerConfig,
+    token: &str,
+) -> Result<Arc<NicknameChangerService>, Box<dyn std::error::Error>> {
+    let nickname_config = NicknameConfig::load()?;
+    let nicknames_pool = NicknameConfig::load_nicknames()?;
 
     if nicknames_pool.is_empty() {
-        error!("No nicknames available in the pool");
-        return None;
+        return Err("No nicknames available in the pool".into());
     }
 
-    info!(
-        "Loaded {} nicknames and {} targets",
-        nicknames_pool.len(),
-        nickname_config.targets.len()
-    );
-
-    Some(Arc::new(NicknameChangerService::new(
-        server_config,
+    Ok(Arc::new(NicknameChangerService::new(
+        server_config.clone(),
         nickname_config,
         nicknames_pool,
         Arc::new(Http::new(token)),
     )))
+}
+
+async fn initialize_kick_service(
+    server_config: &ServerConfig,
+    token: &str,
+) -> Result<Arc<KickService>, Box<dyn std::error::Error>> {
+    let kick_config = KickConfig::load()?;
+
+    Ok(Arc::new(KickService::new(
+        server_config.clone(),
+        kick_config,
+        Arc::new(Http::new(token)),
+    )))
+}
+
+// ==================== Helper functions ====================
+
+/// Extract username from kick message: "Puedo kickear a username?"
+fn extract_username_from_kick_message(message: &str) -> Option<String> {
+    let prefix = "Puedo kickear a ";
+    let suffix = "?";
+
+    if let Some(start) = message.find(prefix) {
+        let start_idx = start + prefix.len();
+        if let Some(end) = message.find(suffix) {
+            if end > start_idx {
+                return Some(message[start_idx..end].to_string());
+            }
+        }
+    }
+    None
 }

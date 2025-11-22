@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub enum Feature {
     NicknameChanger,
     MentionResponse,
+    Kick,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,7 +19,11 @@ impl Default for ServerConfig {
         Self {
             server_id: 0,
             general_channel_id: 0,
-            enabled_features: vec![Feature::NicknameChanger, Feature::MentionResponse],
+            enabled_features: vec![
+                Feature::NicknameChanger,
+                Feature::MentionResponse,
+                Feature::Kick,
+            ],
         }
     }
 }
@@ -26,9 +31,13 @@ impl Default for ServerConfig {
 impl ServerConfig {
     pub fn my_server() -> Self {
         Self {
-            server_id: 1422605167580155914, // My server
-            general_channel_id: 1422605168662413456, // general channel
-            enabled_features: vec![Feature::NicknameChanger, Feature::MentionResponse],
+            server_id: 1422605167580155914,
+            general_channel_id: 1422605168662413456,
+            enabled_features: vec![
+                Feature::NicknameChanger,
+                Feature::MentionResponse,
+                Feature::Kick,
+            ],
         }
     }
 }

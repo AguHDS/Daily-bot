@@ -36,7 +36,7 @@ pub struct NicknameConfig {
 
 impl NicknameConfig {
     pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
-        let targets_path = "src/features/server_specific/data/targets.json";
+        let targets_path = "src/features/server_specific/data/nickname_targets.json";
         let content = fs::read_to_string(targets_path)?;
         let config: NicknameConfig = serde_json::from_str(&content)?;
         Ok(config)
@@ -50,7 +50,7 @@ impl NicknameConfig {
     }
 
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let targets_path = "src/features/server_specific/data/targets.json";
+        let targets_path = "src/features/server_specific/data/nickname_targets.json";
         let content = serde_json::to_string_pretty(self)?;
         fs::write(targets_path, content)?;
         Ok(())

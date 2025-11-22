@@ -45,7 +45,7 @@ impl CommandHandler {
     /// Register slash commands for a specific servers
     async fn register_commands_for_guild(&self, ctx: &Context, guild_id: GuildId) {
         // Test server ID
-        const SERVER_FOR_STATS: u64 = 1422605167580155914;
+        const SERVER_FOR_STATS_COMMAND: u64 = 1422605167580155914;
 
         // Commands available for ALL servers
         let mut commands = vec![
@@ -59,7 +59,7 @@ impl CommandHandler {
         ];
 
         // Only add stats command if it's the allowed server
-        if guild_id.get() == SERVER_FOR_STATS {
+        if guild_id.get() == SERVER_FOR_STATS_COMMAND {
             commands.push(crate::application::commands::register_stats_command());
             info!("Registered stats command for guild: {}", guild_id);
         }
@@ -71,7 +71,7 @@ impl CommandHandler {
 
     /// Initialize joke features for specific server
     async fn initialize_joke_features(&self, guild_id: GuildId) {
-        let my_server_id = 1422605167580155914; // My server (Kutums)
+        let my_server_id = 479788664876957737; // My server (Kutums)
 
         if guild_id.get() != my_server_id {
             return;

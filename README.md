@@ -1,12 +1,10 @@
 # Daily Discord Bot
 
-**Status:** In Development
-
 ## Overview
-Daily is a Discord bot designed to help users manage reminders and daily tasks directly within Discord servers. Its main functionality is to send scheduled pings to users for tasks they need to complete,
+Daily is a Discord bot designed to help users manage reminders and daily tasks directly within Discord servers. Its main functionality is to send scheduled pings to users for tasks they need to complete.
 
 ## Features
-- /add_task - Create tasks (single/weekly)
+- /add_task - Create tasks (Single or Weekly)
 - /edit_task - Modify existing tasks
 - /list_tasks - View all formatted user tasks
 - /remove_task - Remove specific or all tasks

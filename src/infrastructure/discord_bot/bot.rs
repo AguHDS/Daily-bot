@@ -6,6 +6,9 @@ use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::repositories::{
     ConfigRepository, TaskRepository, TaskSchedulerRepository, UserPreferencesRepository,
 };
+use crate::features::server_specific::config::ServerConfig;
+use crate::features::server_specific::config::nickname_config::NicknameConfig;
+use crate::features::server_specific::{Feature, NicknameChangerService, NicknameScheduler};
 use crate::infrastructure::database::DatabaseManager;
 use crate::infrastructure::repositories::{
     sqlite_config_repository::SqliteConfigRepository,
@@ -15,10 +18,11 @@ use crate::infrastructure::repositories::{
 };
 use crate::infrastructure::scheduler::priority_queue_scheduler::PriorityQueueScheduler;
 use crate::infrastructure::timezone::timezone_manager::TimezoneManager;
+use serenity::http::Http;
 use serenity::model::{application::Interaction, gateway::Ready, id::GuildId};
 use serenity::prelude::*;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 pub struct CommandHandler {
     pub task_service: Arc<TaskService>,
@@ -27,15 +31,16 @@ pub struct CommandHandler {
     pub notification_service: Arc<NotificationService>,
     pub timezone_service: Arc<TimezoneService>,
     pub sqlite_scheduler_repo: Arc<SqliteSchedulerRepository>,
+    pub nickname_changer_service: Option<Arc<NicknameChangerService>>,
 }
 
 impl CommandHandler {
-    /// Register slash commands for a specific guild
+    /// Register slash commands for a specific servers
     async fn register_commands_for_guild(&self, ctx: &Context, guild_id: GuildId) {
         // Test server ID
-        const ALLOWED_GUILD_ID: u64 = 1422605167580155914;
+        const SERVER_FOR_STATS: u64 = 1422605167580155914;
 
-        // Commands available for ALL guilds
+        // Commands available for ALL servers
         let mut commands = vec![
             crate::application::commands::register_add_task_command(),
             crate::application::commands::register_list_tasks_command(),
@@ -47,12 +52,31 @@ impl CommandHandler {
         ];
 
         // Only add stats command if it's the allowed server
-        if guild_id.get() == ALLOWED_GUILD_ID {
+        if guild_id.get() == SERVER_FOR_STATS {
             commands.push(crate::application::commands::register_stats_command());
+            info!("Registered stats command for guild: {}", guild_id);
         }
 
         if let Err(e) = guild_id.set_commands(&ctx.http, commands).await {
             error!("Failed to register commands for guild {}: {}", guild_id, e);
+        }
+    }
+
+    /// Initialize joke features for specific server
+    async fn initialize_joke_features(&self, guild_id: GuildId) {
+        let my_server_id = 1422605167580155914; // My server
+
+        if guild_id.get() != my_server_id {
+            return;
+        }
+
+        info!("Initializing joke features for guild {}", guild_id);
+
+        // Start nickname scheduler if the service exists
+        if let Some(nickname_service) = &self.nickname_changer_service {
+            let scheduler = NicknameScheduler::new(nickname_service.clone());
+            scheduler.start().await;
+            info!("Nickname scheduler started for guild {}", guild_id);
         }
     }
 }
@@ -64,6 +88,7 @@ impl EventHandler for CommandHandler {
 
         for g in ready.guilds {
             self.register_commands_for_guild(&ctx, g.id).await;
+            self.initialize_joke_features(g.id).await;
         }
 
         // Load scheduled tasks on startup
@@ -94,13 +119,19 @@ impl EventHandler for CommandHandler {
         is_new: Option<bool>,
     ) {
         if is_new.unwrap_or(false) {
+            info!("Bot joined new guild: {} ({})", guild.name, guild.id);
             self.register_commands_for_guild(&ctx, guild.id).await;
+            self.initialize_joke_features(guild.id).await;
         }
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         match &interaction {
             Interaction::Command(command) => {
+                info!(
+                    "Received command: {} from user: {}",
+                    command.data.name, command.user.id
+                );
                 match command.data.name.as_str() {
                     "add_task" => {
                         crate::application::commands::add_task::run_add_task(
@@ -150,6 +181,7 @@ impl EventHandler for CommandHandler {
                 }
             }
             Interaction::Component(_) => {
+                debug!("Received component interaction");
                 crate::application::commands::interaction_handlers::handle_component(
                     &ctx,
                     &interaction,
@@ -160,6 +192,7 @@ impl EventHandler for CommandHandler {
                 .await;
             }
             Interaction::Modal(_) => {
+                debug!("Received modal interaction");
                 crate::application::commands::interaction_handlers::handle_modal(
                     &ctx,
                     &interaction,
@@ -169,13 +202,17 @@ impl EventHandler for CommandHandler {
                 )
                 .await;
             }
-            _ => {}
+            _ => {
+                debug!("Received unknown interaction type");
+            }
         }
     }
 }
 
 /// Composition root: builds all repos, services, and bot handler
 pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
+    info!("Starting bot initialization...");
+
     let token = std::env::var("DISCORD_TOKEN").expect("Expected token in environment");
 
     let intents = GatewayIntents::GUILDS
@@ -189,7 +226,7 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     db_manager.initialize_database().await?;
     info!("Database initialized successfully");
 
-    // SQLite repositories (all async now)
+    // SQLite repositories (all sync)
     let task_repo: Arc<dyn TaskRepository> = Arc::new(SqliteTaskRepository::new(db_path)?);
     let config_repo: Arc<dyn ConfigRepository> =
         Arc::new(SqliteConfigRepository::new(db_path).await?);
@@ -200,13 +237,11 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     let sqlite_scheduler_repo = Arc::new(SqliteSchedulerRepository::new(db_path)?);
     let task_scheduler: Arc<dyn TaskSchedulerRepository> = sqlite_scheduler_repo.clone();
 
-    // Timezone manager
     let timezone_manager = Arc::new(
         TimezoneManager::new()
             .map_err(|e| format!("Failed to initialize timezone manager: {}", e))?,
     );
 
-    // Services
     let notification_service = Arc::new(NotificationService::new());
 
     let config_service = Arc::new(ConfigService::new(config_repo.clone()));
@@ -229,13 +264,16 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         timezone_service.clone(),
     ));
 
+    let nickname_changer_service = initialize_joke_services(&token).await;
+
     let handler = CommandHandler {
         task_service,
         task_orchestrator,
         config_service,
         notification_service,
         timezone_service,
-        sqlite_scheduler_repo: sqlite_scheduler_repo,
+        sqlite_scheduler_repo,
+        nickname_changer_service,
     };
 
     let mut client = Client::builder(&token, intents)
@@ -244,4 +282,58 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
 
     client.start().await?;
     Ok(())
+}
+
+// ==================== Additional features for my server ====================
+
+async fn initialize_joke_services(token: &str) -> Option<Arc<NicknameChangerService>> {
+    let server_config = ServerConfig::my_server();
+
+    // Check if features are enabled
+    if !server_config
+        .enabled_features
+        .contains(&Feature::NicknameChanger)
+    {
+        info!(
+            "No joke features enabled for server {}",
+            server_config.server_id
+        );
+        return None;
+    }
+
+    // Cargar configuración desde JSON
+    let nickname_config = match NicknameConfig::load() {
+        Ok(config) => config,
+        Err(e) => {
+            error!("Failed to load nickname config: {}", e);
+            return None;
+        }
+    };
+
+    // Cargar pool de nicknames desde JSON
+    let nicknames_pool = match NicknameConfig::load_nicknames() {
+        Ok(nicknames) => nicknames,
+        Err(e) => {
+            error!("Failed to load nicknames pool: {}", e);
+            return None;
+        }
+    };
+
+    if nicknames_pool.is_empty() {
+        error!("No nicknames available in the pool");
+        return None;
+    }
+
+    info!(
+        "Loaded {} nicknames and {} targets",
+        nicknames_pool.len(),
+        nickname_config.targets.len()
+    );
+
+    Some(Arc::new(NicknameChangerService::new(
+        server_config,
+        nickname_config,
+        nicknames_pool,
+        Arc::new(Http::new(token)),
+    )))
 }

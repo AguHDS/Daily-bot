@@ -2,6 +2,7 @@ use dotenvy::dotenv;
 mod application;
 mod domain;
 mod infrastructure;
+pub mod features;
 mod utils;
 use crate::infrastructure::discord_bot::bot::run_bot;
 use tracing::{error};

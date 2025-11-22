@@ -13,6 +13,7 @@ dependencies = [
  "dotenvy",
  "fuzzy-matcher",
  "lazy_static",
+ "rand",
  "rusqlite",
  "serde",
  "serde_json",

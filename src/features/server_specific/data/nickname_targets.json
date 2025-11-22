@@ -1,49 +1,44 @@
 {
   "enabled": true,
   "random_config": {
-    "check_interval_minutes": 15,
+    "check_interval_minutes": 30,
     "change_probability": 0.05,
-    "min_minutes_between_changes": 15
+    "min_minutes_between_changes": 30
   },
   "targets": [
     {
-      "user_id": 601927840518111262,
-      "display_name": "sugarbytes_",
-      "change_probability": 0.99
-    },
-    {
       "user_id": 348513689974079509,
-      "display_name": "dalex512", 
-      "change_probability": 0.15
+      "display_name": "dalex512",
+      "change_probability": 0.09
     },
     {
       "user_id": 172469370532921344,
-      "display_name": "bloodgod", 
-      "change_probability": 0.04
+      "display_name": "bloodgod",
+      "change_probability": 0.02
     },
     {
       "user_id": 304312002103476225,
-      "display_name": "_deiwos", 
-      "change_probability": 0.06
+      "display_name": "_deiwos",
+      "change_probability": 0.02
     },
     {
       "user_id": 645478274214002708,
-      "display_name": "k3nz0dx", 
-      "change_probability": 0.11
+      "display_name": "k3nz0dx",
+      "change_probability": 0.08
     },
     {
       "user_id": 304087112830025728,
-      "display_name": "sangeline", 
-      "change_probability": 0.05
+      "display_name": "sangeline",
+      "change_probability": 0.02
     },
     {
       "user_id": 616511805732290561,
-      "display_name": "sir.midget", 
-      "change_probability": 0.06
+      "display_name": "sir.midget",
+      "change_probability": 0.03
     },
     {
       "user_id": 257288389689212929,
-      "display_name": "naofullbuster", 
+      "display_name": "naofullbuster",
       "change_probability": 0.02
     },
     {
@@ -54,7 +49,7 @@
     {
       "user_id": 292907076760371212,
       "display_name": "crayt.", 
-      "change_probability": 0.05
+      "change_probability": 0.04
     },
     {
       "user_id": 298274184495104004,
@@ -64,7 +59,7 @@
     {
       "user_id": 292910315576885248,
       "display_name": "hyperzyro",
-      "change_probability": 0.03
+      "change_probability": 0.02
     },
     {
       "user_id": 293476475280162816,

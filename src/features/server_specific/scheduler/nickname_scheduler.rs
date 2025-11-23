@@ -15,10 +15,6 @@ impl NicknameScheduler {
     /// Starts the nickname change scheduler with random timing
     pub async fn start(self) {
         let check_interval = self.get_check_interval();
-        info!(
-            "Starting nickname scheduler with {} second interval",
-            check_interval.as_secs()
-        );
 
         tokio::spawn(async move {
             loop {

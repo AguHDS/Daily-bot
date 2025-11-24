@@ -1,7 +1,7 @@
 use crate::features::server_specific::services::kick_service::KickService;
 use std::sync::Arc;
 use tokio::time::{Duration, sleep};
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 pub struct KickScheduler {
     service: Arc<KickService>,
@@ -15,10 +15,6 @@ impl KickScheduler {
     /// Starts the kick poll scheduler with random timing
     pub async fn start(self) {
         let check_interval = self.get_check_interval();
-        info!(
-            "Starting kick scheduler with {} minute interval",
-            check_interval.as_secs() / 60
-        );
 
         tokio::spawn(async move {
             loop {

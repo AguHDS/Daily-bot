@@ -125,10 +125,6 @@ impl NicknameChangerService {
 
         match self.http.edit_member(guild_id, user_id, &map, None).await {
             Ok(_) => {
-                info!(
-                    "Successfully updated nickname for user {} to '{}'",
-                    user_id, new_nickname
-                );
                 Ok(())
             }
             Err(why) => {
@@ -147,7 +143,7 @@ impl NicknameChangerService {
         let channel_id = ChannelId::new(self.server_config.general_channel_id);
 
         let message_content = format!(
-            "{}, que bonito nombre tienes... te lo puedo cambiar?\n*{} → {}*",
+            "{}, que lindo nombre tienes... te lo puedo cambiar?\n*{} → {}*",
             old_nickname, old_nickname, new_nickname
         );
 
@@ -157,7 +153,6 @@ impl NicknameChangerService {
 
         match channel_id.send_message(&self.http, msg).await {
             Ok(_) => {
-                info!("Formatted message sent successfully");
                 Ok(())
             }
             Err(why) => {

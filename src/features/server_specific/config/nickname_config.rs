@@ -12,9 +12,9 @@ pub struct RandomConfig {
 impl Default for RandomConfig {
     fn default() -> Self {
         Self {
-            check_interval_minutes: 15,
-            change_probability: 0.05,
-            min_minutes_between_changes: 15,
+            check_interval_minutes: 60,
+            change_probability: 0.0,
+            min_minutes_between_changes: 60,
         }
     }
 }

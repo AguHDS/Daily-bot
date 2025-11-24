@@ -1,7 +1,7 @@
 use crate::features::server_specific::services::nickname_changer::NicknameChangerService;
 use std::sync::Arc;
 use tokio::time::{Duration, sleep};
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 pub struct NicknameScheduler {
     service: Arc<NicknameChangerService>,
@@ -47,11 +47,6 @@ impl NicknameScheduler {
         }
 
         for target in targets_to_change {
-            info!(
-                "Attempting random nickname change for {} (user_id: {})",
-                target.display_name, target.user_id
-            );
-
             if let Err(e) = self.service.change_nickname_for_user(target.user_id).await {
                 warn!(
                     "Failed to change nickname for {}: {}",

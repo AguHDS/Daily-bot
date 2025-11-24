@@ -54,7 +54,6 @@ impl CommandHandler {
         // Only add stats command if it's the allowed server
         if guild_id.get() == SERVER_FOR_STATS_COMMAND {
             commands.push(crate::application::commands::register_stats_command());
-            info!("Registered stats command for guild: {}", guild_id);
         }
 
         if let Err(e) = guild_id.set_commands(&ctx.http, commands).await {

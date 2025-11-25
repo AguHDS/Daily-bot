@@ -27,7 +27,7 @@ pub async fn run_list_tasks(
 
     let builder = CreateInteractionResponse::Message(
         CreateInteractionResponseMessage::default()
-            .content(format!("{}, these are your tasks\n", user_mention))
+            .content(format!("These are your tasks, {} \n", user_mention))
             .add_embed(embed_response)
             .ephemeral(false),
     );

@@ -1,17 +1,15 @@
-use crate::application::services::config_service::ConfigService;
 use crate::application::services::notification_service::NotificationService;
 use crate::application::services::task_orchestrator::TaskOrchestrator;
 use crate::application::services::task_service::TaskService;
 use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::repositories::{
-    ConfigRepository, TaskRepository, TaskSchedulerRepository, UserPreferencesRepository,
+    TaskRepository, TaskSchedulerRepository, UserPreferencesRepository,
 };
 use crate::features::server_specific::{
     ServerFeaturesOrchestrator, ServerInteractionHandler, initialize_specific_services,
 };
 use crate::infrastructure::database::DatabaseManager;
 use crate::infrastructure::repositories::{
-    sqlite_config_repository::SqliteConfigRepository,
     sqlite_scheduler_repository::SqliteSchedulerRepository,
     sqlite_task_repository::SqliteTaskRepository,
     sqlite_user_preferences_repository::SqliteUserPreferencesRepository,
@@ -26,7 +24,6 @@ use tracing::{debug, error, info};
 pub struct CommandHandler {
     pub task_service: Arc<TaskService>,
     pub task_orchestrator: Arc<TaskOrchestrator>,
-    pub config_service: Arc<ConfigService>,
     pub notification_service: Arc<NotificationService>,
     pub timezone_service: Arc<TimezoneService>,
     pub sqlite_scheduler_repo: Arc<SqliteSchedulerRepository>,
@@ -47,7 +44,7 @@ impl CommandHandler {
             crate::application::commands::register_remove_task_command(),
             crate::application::commands::register_help_command(),
             crate::application::commands::edit_task::register_edit_task_command(),
-            crate::application::commands::set_notification_channel::register_set_notification_channel_command(),
+            // REMOVED: set_notification_channel command
             crate::application::commands::timezone::register_timezone_command(),
         ];
 
@@ -87,7 +84,6 @@ impl EventHandler for CommandHandler {
         PriorityQueueScheduler::start_scheduler(
             Arc::new(ctx),
             self.task_orchestrator.clone(),
-            self.config_service.clone(),
             self.notification_service.clone(),
             self.sqlite_scheduler_repo.clone(),
         );
@@ -121,14 +117,7 @@ impl EventHandler for CommandHandler {
                     )
                     .await;
                 }
-                "set_notification_channel" => {
-                    crate::application::commands::set_notification_channel::run_set_notification_channel(
-                            &ctx,
-                            command,
-                            &self.config_service,
-                        )
-                        .await;
-                }
+                // REMOVED: "set_notification_channel" handler
                 "timezone" => {
                     crate::application::commands::timezone::run_timezone_command(
                         &ctx,
@@ -151,7 +140,6 @@ impl EventHandler for CommandHandler {
                         &interaction,
                         &self.task_service,
                         &self.task_orchestrator,
-                        &self.config_service,
                         &self.notification_service,
                         &self.timezone_service,
                     )
@@ -186,7 +174,6 @@ impl EventHandler for CommandHandler {
                     &interaction,
                     &self.task_orchestrator,
                     &self.timezone_service,
-                    &self.config_service,
                 )
                 .await;
             }
@@ -214,8 +201,6 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
 
     // SQLite repositories (all sync)
     let task_repo: Arc<dyn TaskRepository> = Arc::new(SqliteTaskRepository::new(db_path)?);
-    let config_repo: Arc<dyn ConfigRepository> =
-        Arc::new(SqliteConfigRepository::new(db_path).await?);
     let user_prefs_repo: Arc<dyn UserPreferencesRepository> =
         Arc::new(SqliteUserPreferencesRepository::new(db_path)?);
 
@@ -230,8 +215,6 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
 
     let notification_service = Arc::new(NotificationService::new());
 
-    let config_service = Arc::new(ConfigService::new(config_repo.clone()));
-
     let timezone_service = Arc::new(TimezoneService::new(
         user_prefs_repo.clone(),
         timezone_manager,
@@ -239,7 +222,7 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
 
     let task_service = Arc::new(TaskService::new(
         task_repo.clone(),
-        config_repo.clone(),
+        // REMOVED: config_repo dependency
         notification_service.clone(),
         timezone_service.clone(),
     ));
@@ -263,7 +246,6 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     let handler = CommandHandler {
         task_service,
         task_orchestrator,
-        config_service,
         notification_service,
         timezone_service,
         sqlite_scheduler_repo,

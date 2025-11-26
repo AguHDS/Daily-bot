@@ -1,7 +1,7 @@
 use crate::application::services::notification_service::NotificationService;
 use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::entities::task::{NotificationMethod, Recurrence, Task};
-use crate::domain::repositories::{ConfigRepository, TaskRepository};
+use crate::domain::repositories::TaskRepository;
 use crate::domain::value_objects::weekday_format::WeekdayFormat;
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
 use serenity::builder::{CreateEmbed, CreateEmbedFooter};
@@ -13,8 +13,6 @@ use std::sync::Arc;
 pub struct TaskService {
     pub(crate) task_repo: Arc<dyn TaskRepository>,
     #[allow(dead_code)]
-    config_repo: Arc<dyn ConfigRepository>,
-    #[allow(dead_code)]
     notification_service: Arc<NotificationService>,
     timezone_service: Arc<TimezoneService>,
 }
@@ -22,13 +20,11 @@ pub struct TaskService {
 impl TaskService {
     pub fn new(
         task_repo: Arc<dyn TaskRepository>,
-        config_repo: Arc<dyn ConfigRepository>,
         notification_service: Arc<NotificationService>,
         timezone_service: Arc<TimezoneService>,
     ) -> Self {
         Self {
             task_repo,
-            config_repo,
             notification_service,
             timezone_service,
         }
@@ -44,6 +40,7 @@ impl TaskService {
         description: String,
         scheduled_time: DateTime<Utc>,
         notification_method: NotificationMethod,
+        channel_id: Option<u64>, // NEW: Specific channel for this task
         mention: Option<String>,
     ) -> Result<u64, String> {
         if scheduled_time < Utc::now() {
@@ -63,9 +60,12 @@ impl TaskService {
             Some(scheduled_time),
             None,
             notification_method,
-            None,
+            channel_id, // NEW: Pass channel_id
             mention,
         );
+
+        // Validate channel requirement
+        task.validate_channel_requirement()?;
 
         // persist
         self.task_repo.add_task(task).await
@@ -81,6 +81,7 @@ impl TaskService {
         hour: u8,
         minute: u8,
         notification_method: NotificationMethod,
+        channel_id: Option<u64>, // NEW: Specific channel for this task
         mention: Option<String>,
     ) -> Result<u64, String> {
         if title.trim().is_empty() {
@@ -115,9 +116,12 @@ impl TaskService {
             Some(first_time),
             recurrence,
             notification_method,
-            None,
+            channel_id, // NEW: Pass channel_id
             mention,
         );
+
+        // Validate channel requirement
+        task.validate_channel_requirement()?;
 
         // persist
         self.task_repo.add_task(task).await
@@ -532,15 +536,16 @@ impl TaskService {
             None => None,             // don't change existing description
         };
 
-        self.task_repo.edit_task(
-            task_id,
-            new_title,
-            final_description,
-            new_scheduled_time,
-            new_recurrence,
-            None,
-        )
-        .await
+        self.task_repo
+            .edit_task(
+                task_id,
+                new_title,
+                final_description,
+                new_scheduled_time,
+                new_recurrence,
+                None,
+            )
+            .await
     }
 
     // === SCHEDULER BUSINESS LOGIC ===

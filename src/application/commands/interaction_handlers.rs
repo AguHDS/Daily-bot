@@ -1,5 +1,4 @@
 use crate::application::services::TaskOrchestrator;
-use crate::application::services::config_service::ConfigService;
 use crate::application::services::notification_service::NotificationService;
 use crate::application::services::task_service::TaskService;
 use crate::application::services::timezone_service::TimezoneService;
@@ -14,7 +13,6 @@ pub async fn handle_command(
     interaction: &Interaction,
     task_service: &Arc<TaskService>,
     task_orchestrator: &Arc<TaskOrchestrator>,
-    config_service: &Arc<ConfigService>,
     _notification_service: &Arc<NotificationService>,
     timezone_service: &Arc<TimezoneService>,
 ) {
@@ -46,12 +44,6 @@ pub async fn handle_command(
                     &command,
                     task_service,
                     timezone_service,
-                )
-                .await;
-            }
-            "set_notification_channel" => {
-                crate::application::commands::set_notification_channel::run_set_notification_channel(
-                    ctx, &command, config_service,
                 )
                 .await;
             }
@@ -142,7 +134,6 @@ pub async fn handle_modal(
     interaction: &Interaction,
     task_orchestrator: &Arc<TaskOrchestrator>,
     timezone_service: &Arc<TimezoneService>,
-    config_service: &Arc<crate::application::services::config_service::ConfigService>,
 ) {
     if let Some(modal) = interaction.clone().modal_submit() {
         let custom_id = modal.data.custom_id.as_str();
@@ -164,7 +155,6 @@ pub async fn handle_modal(
                 &modal,
                 task_orchestrator,
                 timezone_service,
-                config_service,
             )
             .await
             .unwrap_or_else(|err| {

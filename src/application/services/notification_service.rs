@@ -1,4 +1,3 @@
-use crate::application::services::config_service::ConfigService;
 use crate::domain::entities::scheduled_task::ScheduledTask;
 use crate::domain::entities::task::{NotificationMethod, Task};
 use chrono::Local;
@@ -15,26 +14,19 @@ impl NotificationService {
         Self
     }
 
-    /// Sends a notification for a task according to its NotificationMethod. If Channel/Both, uses the configured server notification channel
-    pub async fn send_task_notification(
-        &self,
-        task: &Task,
-        ctx: &Context,
-        config_service: &ConfigService,
-        guild_id: Option<u64>,
-    ) -> Result<(), String> {
+    /// Sends a notification for a task according to its NotificationMethod.
+    /// For Channel/Both, uses the task-specific channel_id
+    pub async fn send_task_notification(&self, task: &Task, ctx: &Context) -> Result<(), String> {
         match task.notification_method {
             NotificationMethod::DM => {
                 self.send_dm(task, ctx).await?;
             }
             NotificationMethod::Channel => {
-                self.send_channel_with_service(task, ctx, config_service, guild_id)
-                    .await?;
+                self.send_channel_with_task_channel(task, ctx).await?;
             }
             NotificationMethod::Both => {
                 self.send_dm(task, ctx).await?;
-                self.send_channel_with_service(task, ctx, config_service, guild_id)
-                    .await?;
+                self.send_channel_with_task_channel(task, ctx).await?;
             }
         }
         Ok(())
@@ -45,12 +37,13 @@ impl NotificationService {
         &self,
         scheduled_task: &ScheduledTask,
         ctx: &Context,
-        config_service: &ConfigService,
         task_orchestrator: &crate::application::services::task_orchestrator::TaskOrchestrator,
     ) -> Result<(), String> {
-        // Fetch the full task details including description
-        let full_task = task_orchestrator.get_task_by_id(scheduled_task.task_id).await;
-        
+        // Fetch the full task details including description and channel_id
+        let full_task = task_orchestrator
+            .get_task_by_id(scheduled_task.task_id)
+            .await;
+
         // Create task struct for notification - use full task if available, otherwise fallback to scheduled task data
         let notification_task = if let Some(task) = full_task {
             task
@@ -65,14 +58,13 @@ impl NotificationService {
                 scheduled_time: Some(scheduled_task.scheduled_time),
                 recurrence: None,
                 notification_method: scheduled_task.notification_method.clone(),
-                channel_id: None,
+                channel_id: None, // No channel_id in fallback
                 mention: scheduled_task.mention.clone(),
             }
         };
 
-        // Send notification using existing method
-        self.send_task_notification(&notification_task, ctx, config_service, Some(scheduled_task.guild_id))
-            .await
+        // Send notification using task-specific channel
+        self.send_task_notification(&notification_task, ctx).await
     }
 
     /// Send a direct message to the user with an embed
@@ -96,30 +88,18 @@ impl NotificationService {
         Ok(())
     }
 
-    /// Send a message to the server's notification channel using ConfigService with an embed
-    pub async fn send_channel_with_service(
+    /// Send a message to the task-specific channel with an embed
+    pub async fn send_channel_with_task_channel(
         &self,
         task: &Task,
         ctx: &Context,
-        config_service: &ConfigService,
-        guild_id: Option<u64>,
     ) -> Result<(), String> {
-        let gid = guild_id.ok_or_else(|| {
+        let channel_id = task.channel_id.ok_or_else(|| {
             format!(
-                "Task {} has no guild_id. Cannot send channel notification.",
+                "Task {} has no channel_id configured for channel notification.",
                 task.id
             )
         })?;
-
-        let channel_id = config_service
-            .get_notification_channel(gid)
-            .await
-            .ok_or_else(|| {
-                format!(
-                    "No notification channel set for guild {}. Skipping channel notification.",
-                    gid
-                )
-            })?;
 
         let channel = ChannelId::new(channel_id);
 
@@ -128,9 +108,9 @@ impl NotificationService {
             // Use the specified mention(s) instead of the task creator
             format!("Your task is ready! {}", mention)
         } else {
-            // Fallback to mentioning the task creator (should not happen for Channel notifications due to validation)
+            // Fallback to mentioning the task creator
             let user_mention = format!("<@{}>", task.user_id);
-            format!("Hey {}, your task is ready!", user_mention)
+            format!("Your task is ready! {}", user_mention)
         };
 
         let embed = self.create_task_embed(task);

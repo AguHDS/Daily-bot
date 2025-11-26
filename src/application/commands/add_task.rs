@@ -40,11 +40,19 @@ pub fn register_add_task_command() -> CreateCommand {
         )
         .add_option(
             CreateCommandOption::new(
+                CommandOptionType::Channel,
+                "channel",
+                "Channel for notifications (required for Channel/Both)",
+            )
+            .required(false),
+        )
+        .add_option(
+            CreateCommandOption::new(
                 CommandOptionType::String,
                 "mention",
                 "@mention users/roles (optional)",
             )
-            .required(false), // Optional parameter must come after required ones
+            .required(false),
         )
 }
 
@@ -56,10 +64,45 @@ pub async fn run_add_task(
 ) {
     let options = &command.data.options;
 
-    // Extract parameters: notification_method, task_type, mention
+    // Extract parameters: notification_method, task_type, channel, mention
     let notification_method = get_string_option(options, 0).unwrap_or("DM".to_string());
     let task_type = get_string_option(options, 1).unwrap_or("single".to_string());
-    let mention = get_string_option(options, 2).unwrap_or_default();
+
+    // Extract channel ID if provided
+    let channel_id = options
+        .get(2)
+        .and_then(|opt| opt.value.as_channel_id().map(|id| id.get()));
+
+    let mention = get_string_option(options, 3).unwrap_or_default();
+
+    // Validate channel requirement for Channel/Both notification methods - NOW STRICTER
+    let requires_channel = matches!(notification_method.as_str(), "Channel" | "Both");
+    if requires_channel {
+        if channel_id.is_none() {
+            let response = CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::default()
+                    .content("❌ **Channel required**\n\nFor 'Channel' or 'Both DM and Channel' notification methods, you must specify a channel")
+                    .ephemeral(true),
+            );
+            if let Err(err) = command.create_response(&ctx.http, response).await {
+                error!("Failed to send channel requirement error: {}", err);
+            }
+            return;
+        }
+    } else {
+        // For DM-only, channel should not be specified
+        if channel_id.is_some() {
+            let response = CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::default()
+                    .content("❌ **Invalid channel selection**\n\nFor 'Direct Message' notification method, you can't specify a channel")
+                    .ephemeral(true),
+            );
+            if let Err(err) = command.create_response(&ctx.http, response).await {
+                error!("Failed to send channel validation error: {}", err);
+            }
+            return;
+        } // <-- ESTA ERA LA LLAVE QUE FALTABA
+    }
 
     // get user's timezone to display current time
     let user_id = command.user.id.get();
@@ -123,16 +166,20 @@ pub async fn run_add_task(
     .required(false)
     .placeholder("Add more details about your task...");
 
-    // Encode metadata in modal ID
+    // Encode metadata in modal ID including channel_id
     let mention_safe = if mention.is_empty() {
         "NONE".to_string()
     } else {
         mention.replace('|', "PIPE").replace('\n', "NEWLINE")
     };
 
+    let channel_id_str = channel_id
+        .map(|id| id.to_string())
+        .unwrap_or("NONE".to_string());
+
     let modal_custom_id = format!(
-        "add_task_modal|{}|{}|{}",
-        task_type, notification_method, mention_safe
+        "add_task_modal|{}|{}|{}|{}",
+        task_type, notification_method, channel_id_str, mention_safe
     );
 
     let modal = CreateModal::new(&modal_custom_id, "📅 Create New Task").components(vec![
@@ -156,17 +203,35 @@ pub async fn process_task_modal_input(
     modal: &ModalInteraction,
     task_orchestrator: &Arc<TaskOrchestrator>,
     timezone_service: &Arc<TimezoneService>,
-    config_service: &Arc<crate::application::services::config_service::ConfigService>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Parse custom_id to get task_type, notification_method, and mention: "add_task_modal|task_type|notification_method|mention"
+    // Parse custom_id to get task_type, notification_method, channel_id, and mention: "add_task_modal|task_type|notification_method|channel_id|mention"
     let parts: Vec<&str> = modal.data.custom_id.split('|').collect();
-    if parts.len() != 4 {
-        return Err("Invalid modal custom_id format - expected 4 parts".into());
+    if parts.len() != 5 {
+        return Err("Invalid modal custom_id format - expected 5 parts".into());
     }
 
     let task_type = parts[1];
     let notification_method_str = parts[2];
-    let mention_safe = parts[3];
+    let channel_id_str = parts[3];
+    let mention_safe = parts[4];
+
+    // Parse channel_id - NOW VALIDATED EARLIER IN run_add_task
+    let channel_id = if channel_id_str == "NONE" {
+        None
+    } else {
+        match channel_id_str.parse::<u64>() {
+            Ok(id) => Some(id),
+            Err(_) => {
+                let response = CreateInteractionResponse::Message(
+                    CreateInteractionResponseMessage::default()
+                        .content("❌ Invalid channel specified")
+                        .ephemeral(true),
+                );
+                modal.create_response(&ctx.http, response).await?;
+                return Ok(());
+            }
+        }
+    };
 
     // Decode mention by reversing the safe encoding
     let mention = if mention_safe == "NONE" {
@@ -226,25 +291,21 @@ pub async fn process_task_modal_input(
         let normalized_days = date_days_input
             .split(',')
             .map(|day| day.trim())
-            .filter(|day| !day.is_empty()) // Eliminar elementos vacíos
+            .filter(|day| !day.is_empty())
             .collect::<Vec<&str>>()
             .join(",");
 
         let normalized_time = time_input.trim();
 
         // Formato exacto: "days time" con un solo espacio
-        let combined = format!("{} {}", normalized_days, normalized_time);
-
-        combined
+        format!("{} {}", normalized_days, normalized_time)
     } else {
         // PARA SINGLE: Asegurar el formato exacto "YYYY-MM-DD HH:MM"
         let normalized_date = date_days_input.trim();
         let normalized_time = time_input.trim();
 
         // Formato exacto: "YYYY-MM-DD HH:MM"
-        let combined = format!("{} {}", normalized_date, normalized_time);
-
-        combined
+        format!("{} {}", normalized_date, normalized_time)
     };
 
     // Parse notification method (already validated by dropdown selection)
@@ -252,35 +313,12 @@ pub async fn process_task_modal_input(
         "DM" => NotificationMethod::DM,
         "Channel" => NotificationMethod::Channel,
         "Both" => NotificationMethod::Both,
-        _ => NotificationMethod::DM, // fallback, though this shouldn't happen with dropdowns
+        _ => NotificationMethod::DM,
     };
 
     // get user and guild info from modal
     let user_id = modal.user.id.get();
     let guild_id = modal.guild_id.map(|g| g.get()).unwrap_or(0);
-
-    // validate notification channel is configured if needed
-    match notification_method {
-        NotificationMethod::Channel | NotificationMethod::Both => {
-            match config_service.get_notification_channel(guild_id).await {
-                None => {
-                    let response = CreateInteractionResponse::Message(
-                        CreateInteractionResponseMessage::default()
-                            .content("❌ **No notification channel configured**\n\nTo create tasks with channel notifications, an admin must first set up a notification channel using `/set_notification_channel`")
-                            .ephemeral(true),
-                    );
-                    modal.create_response(&ctx.http, response).await?;
-                    return Ok(());
-                }
-                Some(_) => {
-                    // Channel is configured, continue with task creation
-                }
-            }
-        }
-        NotificationMethod::DM => {
-            // DM notifications don't require channel configuration
-        }
-    }
 
     // validate that the user has timezone configured
     match timezone_service.get_user_timezone(user_id).await {
@@ -309,33 +347,43 @@ pub async fn process_task_modal_input(
     }
 
     // Save values for response message before they're moved
-    let is_channel_notification = matches!(notification_method, NotificationMethod::Channel);
+    let is_channel_notification = matches!(
+        notification_method,
+        NotificationMethod::Channel | NotificationMethod::Both
+    );
     let has_mention = mention.is_some();
 
-    // delegate to TaskOrchestrator for business logic - now passing title, description, and mention
+    // delegate to TaskOrchestrator for business logic
     match task_orchestrator
         .handle_add_task_modal(
             user_id,
             guild_id,
-            &task_type,
+            task_type,
             title.clone(),
             description_input,
             notification_method,
-            datetime_input, // This now contains the combined date/days + time
+            datetime_input,
+            channel_id,
             mention,
         )
         .await
     {
         Ok(_task_id) => {
             let response_content = if is_channel_notification && has_mention {
-                format!("✅ Task **{}** created successfully with mention!", title)
+                format!(
+                    "✅ Task **{}** created successfully with mention in specified channel!",
+                    title
+                )
             } else if is_channel_notification {
                 format!(
-                    "✅ Task **{}** created successfully! (You will be mentioned by default)",
+                    "✅ Task **{}** created successfully! Notifications will be sent to the specified channel",
                     title
                 )
             } else {
-                format!("✅ Task **{}** created successfully!", title)
+                format!(
+                    "✅ Task **{}** created successfully! You will receive DM notifications",
+                    title
+                )
             };
 
             let response = CreateInteractionResponse::Message(

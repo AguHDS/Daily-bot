@@ -37,6 +37,7 @@ impl TaskOrchestrator {
         description: String,
         notification_method: NotificationMethod,
         input_str: String,
+        channel_id: Option<u64>, // NEW: Channel ID for task-specific notifications
         mention: Option<String>,
     ) -> Result<u64, String> {
         let (scheduled_time, recurrence) = self
@@ -53,6 +54,7 @@ impl TaskOrchestrator {
                     description,
                     scheduled_time.unwrap(),
                     notification_method,
+                    channel_id, // NEW: Pass channel_id
                     mention,
                 )
                 .await?
@@ -68,6 +70,7 @@ impl TaskOrchestrator {
                         hour,
                         minute,
                         notification_method,
+                        channel_id, // NEW: Pass channel_id
                         mention,
                     )
                     .await?
@@ -89,6 +92,7 @@ impl TaskOrchestrator {
         description: String,
         scheduled_time: chrono::DateTime<chrono::Utc>,
         notification_method: NotificationMethod,
+        channel_id: Option<u64>, // NEW: Channel ID parameter
         mention: Option<String>,
     ) -> Result<u64, String> {
         // delegate to task service
@@ -101,6 +105,7 @@ impl TaskOrchestrator {
                 description,
                 scheduled_time,
                 notification_method,
+                channel_id, // NEW: Pass channel_id
                 mention,
             )
             .await?;
@@ -120,6 +125,7 @@ impl TaskOrchestrator {
         hour: u8,
         minute: u8,
         notification_method: NotificationMethod,
+        channel_id: Option<u64>, // NEW: Channel ID parameter
         mention: Option<String>,
     ) -> Result<u64, String> {
         // delegate to task service
@@ -134,6 +140,7 @@ impl TaskOrchestrator {
                 hour,
                 minute,
                 notification_method,
+                channel_id, // NEW: Pass channel_id
                 mention,
             )
             .await?;
@@ -246,7 +253,6 @@ impl TaskOrchestrator {
 
         if removed_task.is_some() {
             // Also remove from scheduler (lazy deletion)
-
             self.task_scheduler
                 .remove_task(task_id)
                 .await
@@ -340,7 +346,6 @@ impl TaskOrchestrator {
             .await?;
 
         // first remove old task from scheduler
-
         self.task_scheduler
             .remove_task(task_id)
             .await

@@ -1,4 +1,3 @@
-use crate::application::services::config_service::ConfigService;
 use crate::application::services::notification_service::NotificationService;
 use crate::application::services::task_orchestrator::TaskOrchestrator;
 use chrono::Utc;
@@ -6,7 +5,7 @@ use serenity::prelude::Context;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::time::{Duration, sleep};
-use tracing::{error};
+use tracing::error;
 
 /// Efficient scheduler using priority queue
 pub struct PriorityQueueScheduler;
@@ -15,19 +14,17 @@ impl PriorityQueueScheduler {
     pub fn start_scheduler(
         ctx: Arc<Context>,
         task_orchestrator: Arc<TaskOrchestrator>,
-        config_service: Arc<ConfigService>,
         notification_service: Arc<NotificationService>,
         scheduler_repo: Arc<crate::infrastructure::repositories::sqlite_scheduler_repository::SqliteSchedulerRepository>,
     ) {
         tokio::spawn(async move {
             // Subscribe to wake-up notifications
             let mut wakeup_receiver = scheduler_repo.subscribe_wakeup();
-            
+
             loop {
                 match Self::scheduler_iteration(
                     &ctx,
                     &task_orchestrator,
-                    &config_service,
                     &notification_service,
                     &mut wakeup_receiver,
                 )
@@ -56,7 +53,6 @@ impl PriorityQueueScheduler {
     async fn scheduler_iteration(
         ctx: &Context,
         task_orchestrator: &TaskOrchestrator,
-        config_service: &ConfigService,
         notification_service: &NotificationService,
         wakeup_receiver: &mut broadcast::Receiver<()>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
@@ -66,29 +62,23 @@ impl PriorityQueueScheduler {
         if let Some(next_task) = task_orchestrator.peek_next_scheduled_task().await? {
             if next_task.scheduled_time <= now {
                 // task ready to notify
-                
-                Self::process_due_task(
-                    ctx,
-                    task_orchestrator,
-                    config_service,
-                    notification_service,
-                    next_task,
-                )
-                .await?;
-                
+
+                Self::process_due_task(ctx, task_orchestrator, notification_service, next_task)
+                    .await?;
+
                 return Ok(true); // continue immediatly (there might be more due tasks)
             } else {
                 // Sleep until next task is due OR until interrupted by new task
                 let time_until_task = (next_task.scheduled_time - now)
                     .to_std()
                     .unwrap_or(Duration::from_secs(1));
-                
+
                 // Use tokio::select! to sleep until task time OR wake-up signal
                 tokio::select! {
                     _ = sleep(time_until_task) => {}
                     _ = wakeup_receiver.recv() => {}
                 }
-                
+
                 return Ok(true);
             }
         } else {
@@ -100,16 +90,15 @@ impl PriorityQueueScheduler {
     async fn process_due_task(
         ctx: &Context,
         task_orchestrator: &TaskOrchestrator,
-        config_service: &ConfigService,
         notification_service: &NotificationService,
         scheduled_task: crate::domain::entities::scheduled_task::ScheduledTask,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // remove the task from the scheduler (it's already in scheduled_task)
         task_orchestrator.pop_next_scheduled_task().await?;
 
-        // send notification
+        // send notification using task-specific channel
         if let Err(_err) = notification_service
-            .send_task_notification_from_scheduled(&scheduled_task, ctx, config_service, task_orchestrator)
+            .send_task_notification_from_scheduled(&scheduled_task, ctx, task_orchestrator)
             .await
         {
             // reinsert task if notification failed (retry in 1 minute)
@@ -121,8 +110,13 @@ impl PriorityQueueScheduler {
         }
 
         // obtain repository's full response and handle post-notification via orchestrator
-        if let Some(full_task) = task_orchestrator.get_task_by_id(scheduled_task.task_id).await {
-            let _ = task_orchestrator.handle_post_notification_task(&full_task).await;
+        if let Some(full_task) = task_orchestrator
+            .get_task_by_id(scheduled_task.task_id)
+            .await
+        {
+            let _ = task_orchestrator
+                .handle_post_notification_task(&full_task)
+                .await;
         }
 
         Ok(())

@@ -4,7 +4,6 @@ pub mod help;
 pub mod interaction_handlers;
 pub mod list_tasks;
 pub mod remove_task;
-pub mod set_notification_channel;
 pub mod timezone;
 pub mod utils;
 pub mod stats;

@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
@@ -30,9 +29,6 @@ lazy_static! {
         m.insert("cuba", "America/Havana");
         m.insert("puerto rico", "America/Puerto_Rico");
 
-        // Canada
-        m.insert("canada", "America/Toronto");
-        m.insert("canadá", "America/Toronto");
 
         // Europa
         m.insert("spain", "Europe/Madrid");
@@ -132,6 +128,145 @@ lazy_static! {
 
         m
     };
+
+    static ref COUNTRY_TO_DATE_FORMAT: HashMap<&'static str, &'static str> = {
+        let mut m = HashMap::new();
+
+        // DMY format (Day-Month-Year) - Europe, Latin America
+        m.insert("argentina", "DMY");
+        m.insert("brazil", "DMY");
+        m.insert("brasil", "DMY");
+        m.insert("spain", "DMY");
+        m.insert("espana", "DMY");
+        m.insert("france", "DMY");
+        m.insert("germany", "DMY");
+        m.insert("italy", "DMY");
+        m.insert("united kingdom", "DMY");
+        m.insert("uk", "DMY");
+        m.insert("peru", "DMY");
+        m.insert("mexico", "DMY");
+        m.insert("chile", "DMY");
+        m.insert("colombia", "DMY");
+        m.insert("venezuela", "DMY");
+        m.insert("ecuador", "DMY");
+        m.insert("uruguay", "DMY");
+        m.insert("paraguay", "DMY");
+        m.insert("bolivia", "DMY");
+        m.insert("costa rica", "DMY");
+        m.insert("panama", "DMY");
+        m.insert("republica dominicana", "DMY");
+        m.insert("dominican republic", "DMY");
+        m.insert("guatemala", "DMY");
+        m.insert("honduras", "DMY");
+        m.insert("el salvador", "DMY");
+        m.insert("nicaragua", "DMY");
+        m.insert("cuba", "DMY");
+        m.insert("puerto rico", "DMY");
+
+        // MDY format (Month-Day-Year) - United States, Canada
+        m.insert("canada", "MDY");
+        m.insert("canadá", "MDY");
+        m.insert("united states", "MDY");
+        m.insert("usa", "MDY");
+        m.insert("us", "MDY");
+
+        // YMD format (Year-Month-Day) - Asia, International standards
+        m.insert("japan", "YMD");
+        m.insert("china", "YMD");
+        m.insert("india", "YMD");
+        m.insert("korea", "YMD");
+        m.insert("south korea", "YMD");
+        m.insert("north korea", "YMD");
+        m.insert("taiwan", "YMD");
+        m.insert("hong kong", "YMD");
+        m.insert("singapore", "YMD");
+
+        m
+    };
+
+    static ref US_STATE_TO_DATE_FORMAT: HashMap<&'static str, &'static str> = {
+        let mut m = HashMap::new();
+
+        // All US states use MDY format
+        m.insert("alabama", "MDY");
+        m.insert("connecticut", "MDY");
+        m.insert("delaware", "MDY");
+        m.insert("florida", "MDY");
+        m.insert("georgia", "MDY");
+        m.insert("indiana", "MDY");
+        m.insert("kentucky", "MDY");
+        m.insert("maine", "MDY");
+        m.insert("maryland", "MDY");
+        m.insert("massachusetts", "MDY");
+        m.insert("michigan", "MDY");
+        m.insert("new hampshire", "MDY");
+        m.insert("new jersey", "MDY");
+        m.insert("new york", "MDY");
+        m.insert("north carolina", "MDY");
+        m.insert("ohio", "MDY");
+        m.insert("pennsylvania", "MDY");
+        m.insert("rhode island", "MDY");
+        m.insert("south carolina", "MDY");
+        m.insert("tennessee", "MDY");
+        m.insert("vermont", "MDY");
+        m.insert("virginia", "MDY");
+        m.insert("west virginia", "MDY");
+        m.insert("district of columbia", "MDY");
+        m.insert("washington dc", "MDY");
+        m.insert("arkansas", "MDY");
+        m.insert("illinois", "MDY");
+        m.insert("iowa", "MDY");
+        m.insert("kansas", "MDY");
+        m.insert("louisiana", "MDY");
+        m.insert("minnesota", "MDY");
+        m.insert("mississippi", "MDY");
+        m.insert("missouri", "MDY");
+        m.insert("nebraska", "MDY");
+        m.insert("north dakota", "MDY");
+        m.insert("oklahoma", "MDY");
+        m.insert("south dakota", "MDY");
+        m.insert("texas", "MDY");
+        m.insert("wisconsin", "MDY");
+        m.insert("arizona", "MDY");
+        m.insert("colorado", "MDY");
+        m.insert("idaho", "MDY");
+        m.insert("montana", "MDY");
+        m.insert("new mexico", "MDY");
+        m.insert("utah", "MDY");
+        m.insert("wyoming", "MDY");
+        m.insert("california", "MDY");
+        m.insert("nevada", "MDY");
+        m.insert("oregon", "MDY");
+        m.insert("washington", "MDY");
+        m.insert("alaska", "MDY");
+        m.insert("hawaii", "MDY");
+
+        m
+    };
+
+    static ref CANADA_PROVINCE_TO_DATE_FORMAT: HashMap<&'static str, &'static str> = {
+        let mut m = HashMap::new();
+
+        // All Canadian provinces use MDY format
+        m.insert("british columbia", "MDY");
+        m.insert("columbia britanica", "MDY");
+        m.insert("alberta", "MDY");
+        m.insert("northwest territories", "MDY");
+        m.insert("saskatchewan", "MDY");
+        m.insert("manitoba", "MDY");
+        m.insert("ontario", "MDY");
+        m.insert("quebec", "MDY");
+        m.insert("new brunswick", "MDY");
+        m.insert("nova scotia", "MDY");
+        m.insert("prince edward island", "MDY");
+        m.insert("newfoundland", "MDY");
+        m.insert("labrador", "MDY");
+        m.insert("newfoundland and labrador", "MDY");
+        m.insert("nunavut", "MDY");
+        m.insert("yukon", "MDY");
+
+        m
+    };
 }
 
 pub struct GeoMappingService;
@@ -179,13 +314,75 @@ impl GeoMappingService {
 
         None
     }
-}
 
-// For future migration to MySQL
-#[allow(dead_code)]
-#[async_trait]
-pub trait GeoMappingRepository: Send + Sync {
-    async fn get_timezone_for_country(&self, country: &str) -> Option<String>;
-    async fn get_timezone_for_state(&self, state: &str) -> Option<String>;
-    async fn get_timezone_for_canada_province(&self, province: &str) -> Option<String>;
+    /// Infer date format from timezone string
+    pub fn infer_date_format_from_timezone(&self, timezone: &str) -> Option<&'static str> {
+        let parts: Vec<&str> = timezone.split('/').collect();
+        if parts.len() >= 2 {
+            let region = parts[0].to_lowercase();
+            let location = parts[1].to_lowercase().replace('_', " ");
+
+            // Check specific country mappings by country name in the timezone
+            if location.contains("argentina") {
+                return Some("DMY");
+            } else if location.contains("brazil") || location.contains("brasil") {
+                return Some("DMY");
+            } else if location.contains("mexico") {
+                return Some("DMY");
+            } else if location.contains("chile") {
+                return Some("DMY");
+            } else if location.contains("colombia") {
+                return Some("DMY");
+            } else if location.contains("peru") {
+                return Some("DMY");
+            } else if location.contains("venezuela") {
+                return Some("DMY");
+            } else if location.contains("ecuador") {
+                return Some("DMY");
+            } else if location.contains("uruguay") {
+                return Some("DMY");
+            } else if location.contains("paraguay") {
+                return Some("DMY");
+            } else if location.contains("bolivia") {
+                return Some("DMY");
+            }
+
+            // Check region-based mappings
+            if region == "europe" {
+                return Some("DMY");
+            } else if region == "asia" {
+                return Some("YMD");
+            } else if region == "america" {
+                // For US/Canada, use MDY - check by city names
+                if location.contains("new york")
+                    || location.contains("los angeles")
+                    || location.contains("chicago")
+                    || location.contains("denver")
+                    || location.contains("toronto")
+                    || location.contains("vancouver")
+                    || location.contains("winnipeg")
+                    || location.contains("halifax")
+                {
+                    return Some("MDY");
+                }
+                // For Latin America cities (fallback), use DMY
+                else if location.contains("buenos aires")
+                    || location.contains("sao paulo")
+                    || location.contains("lima")
+                    || location.contains("bogota")
+                    || location.contains("santiago")
+                    || location.contains("caracas")
+                    || location.contains("quito")
+                    || location.contains("montevideo")
+                    || location.contains("asuncion")
+                    || location.contains("la paz")
+                {
+                    return Some("DMY");
+                }
+            }
+        }
+
+        // Default to YMD (international standard)
+        Some("YMD")
+    }
 }

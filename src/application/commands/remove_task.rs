@@ -77,7 +77,7 @@ pub async fn run_remove_task(
                         CreateInteractionResponseMessage::default()
                             .content("Select a task to delete:")
                             .components(components)
-                            .ephemeral(false),
+                            .ephemeral(true),
                     ),
                 )
                 .await;
@@ -192,7 +192,7 @@ pub async fn handle_remove_select(
                             CreateInteractionResponseMessage::default()
                                 .content("⚠️ Are you sure you want to delete all your tasks?")
                                 .components(rows)
-                                .ephemeral(false),
+                                .ephemeral(true),
                         ),
                     )
                     .await;

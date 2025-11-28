@@ -1,7 +1,7 @@
 use crate::application::services::notification_service::NotificationService;
 use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::entities::task::{NotificationMethod, Recurrence, Task};
-use crate::domain::repositories::{ConfigRepository, TaskRepository};
+use crate::domain::repositories::TaskRepository;
 use crate::domain::value_objects::weekday_format::WeekdayFormat;
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
 use serenity::builder::{CreateEmbed, CreateEmbedFooter};
@@ -13,8 +13,6 @@ use std::sync::Arc;
 pub struct TaskService {
     pub(crate) task_repo: Arc<dyn TaskRepository>,
     #[allow(dead_code)]
-    config_repo: Arc<dyn ConfigRepository>,
-    #[allow(dead_code)]
     notification_service: Arc<NotificationService>,
     timezone_service: Arc<TimezoneService>,
 }
@@ -22,13 +20,11 @@ pub struct TaskService {
 impl TaskService {
     pub fn new(
         task_repo: Arc<dyn TaskRepository>,
-        config_repo: Arc<dyn ConfigRepository>,
         notification_service: Arc<NotificationService>,
         timezone_service: Arc<TimezoneService>,
     ) -> Self {
         Self {
             task_repo,
-            config_repo,
             notification_service,
             timezone_service,
         }
@@ -44,6 +40,7 @@ impl TaskService {
         description: String,
         scheduled_time: DateTime<Utc>,
         notification_method: NotificationMethod,
+        channel_id: Option<u64>, // NEW: Specific channel for this task
         mention: Option<String>,
     ) -> Result<u64, String> {
         if scheduled_time < Utc::now() {
@@ -63,9 +60,12 @@ impl TaskService {
             Some(scheduled_time),
             None,
             notification_method,
-            None,
+            channel_id, // NEW: Pass channel_id
             mention,
         );
+
+        // Validate channel requirement
+        task.validate_channel_requirement()?;
 
         // persist
         self.task_repo.add_task(task).await
@@ -81,6 +81,7 @@ impl TaskService {
         hour: u8,
         minute: u8,
         notification_method: NotificationMethod,
+        channel_id: Option<u64>, // NEW: Specific channel for this task
         mention: Option<String>,
     ) -> Result<u64, String> {
         if title.trim().is_empty() {
@@ -115,9 +116,12 @@ impl TaskService {
             Some(first_time),
             recurrence,
             notification_method,
-            None,
+            channel_id, // NEW: Pass channel_id
             mention,
         );
+
+        // Validate channel requirement
+        task.validate_channel_requirement()?;
 
         // persist
         self.task_repo.add_task(task).await
@@ -218,12 +222,12 @@ impl TaskService {
 
     // === LIST TASKS BUSINESS LOGIC ===
 
-    // Used for correct time formatting
-    fn format_recurrence_for_display_with_timezone(
+    // Used for correct time formatting - now async
+    async fn format_recurrence_for_display_with_timezone(
         &self,
         recurrence: &Option<Recurrence>,
         timezone_service: &TimezoneService,
-        user_timezone: &str,
+        user_id: u64,
     ) -> String {
         match recurrence {
             Some(Recurrence::Weekly { days, hour, minute }) => {
@@ -241,18 +245,41 @@ impl TaskService {
                     .and_then(|t| t.with_second(0))
                     .unwrap();
 
-                let local_time_str =
-                    match timezone_service.format_from_utc_with_timezone(utc_time, user_timezone) {
-                        Ok(local_time) => {
-                            // extract only time (HH:MM) from "YYYY-MM-DD HH:MM" format
-                            if let Some(time_part) = local_time.split_whitespace().nth(1) {
-                                time_part.to_string()
-                            } else {
-                                format!("{:02}:{:02}", hour, minute)
-                            }
+                let local_time_str = match timezone_service
+                    .format_from_utc_for_user(utc_time, user_id)
+                    .await
+                {
+                    Ok(local_time) => {
+                        // extract only time (HH:MM) from the formatted string
+                        if let Some(time_part) = local_time.split_whitespace().nth(1) {
+                            time_part.to_string()
+                        } else {
+                            format!("{:02}:{:02}", hour, minute)
                         }
-                        Err(_) => format!("{:02}:{:02}", hour, minute),
-                    };
+                    }
+                    Err(_) => {
+                        // Fallback to old method
+                        match timezone_service.get_user_timezone(user_id).await {
+                            Ok(Some(user_timezone)) => {
+                                match timezone_service
+                                    .format_from_utc_with_timezone(utc_time, &user_timezone)
+                                {
+                                    Ok(local_time) => {
+                                        if let Some(time_part) =
+                                            local_time.split_whitespace().nth(1)
+                                        {
+                                            time_part.to_string()
+                                        } else {
+                                            format!("{:02}:{:02}", hour, minute)
+                                        }
+                                    }
+                                    Err(_) => format!("{:02}:{:02}", hour, minute),
+                                }
+                            }
+                            _ => format!("{:02}:{:02}", hour, minute),
+                        }
+                    }
+                };
 
                 format!("Every {} at {}", days_str, local_time_str)
             }
@@ -267,17 +294,40 @@ impl TaskService {
                     .and_then(|t| t.with_second(0))
                     .unwrap();
 
-                let local_time_str =
-                    match timezone_service.format_from_utc_with_timezone(utc_time, user_timezone) {
-                        Ok(local_time) => {
-                            if let Some(time_part) = local_time.split_whitespace().nth(1) {
-                                time_part.to_string()
-                            } else {
-                                format!("{:02}:{:02}", hour, minute)
-                            }
+                let local_time_str = match timezone_service
+                    .format_from_utc_for_user(utc_time, user_id)
+                    .await
+                {
+                    Ok(local_time) => {
+                        if let Some(time_part) = local_time.split_whitespace().nth(1) {
+                            time_part.to_string()
+                        } else {
+                            format!("{:02}:{:02}", hour, minute)
                         }
-                        Err(_) => format!("{:02}:{:02}", hour, minute),
-                    };
+                    }
+                    Err(_) => {
+                        // Fallback to old method
+                        match timezone_service.get_user_timezone(user_id).await {
+                            Ok(Some(user_timezone)) => {
+                                match timezone_service
+                                    .format_from_utc_with_timezone(utc_time, &user_timezone)
+                                {
+                                    Ok(local_time) => {
+                                        if let Some(time_part) =
+                                            local_time.split_whitespace().nth(1)
+                                        {
+                                            time_part.to_string()
+                                        } else {
+                                            format!("{:02}:{:02}", hour, minute)
+                                        }
+                                    }
+                                    Err(_) => format!("{:02}:{:02}", hour, minute),
+                                }
+                            }
+                            _ => format!("{:02}:{:02}", hour, minute),
+                        }
+                    }
+                };
 
                 format!("Every {} days at {}", interval, local_time_str)
             }
@@ -303,7 +353,7 @@ impl TaskService {
                 ));
         }
 
-        // verify user's timezone
+        // Get user's timezone and format preferences
         let user_timezone = match timezone_service.get_user_timezone(user_id).await {
             Ok(Some(tz)) => tz,
             Ok(None) => {
@@ -316,6 +366,12 @@ impl TaskService {
                 ));
             }
             Err(_) => "UTC".to_string(),
+        };
+
+        // Get user's date format for display
+        let user_date_format = match timezone_service.get_user_date_format(user_id).await {
+            Ok(Some(format)) => format,
+            _ => "YMD".to_string(), // Default to YMD
         };
 
         // separate tasks
@@ -340,15 +396,20 @@ impl TaskService {
             for task in &single_tasks {
                 let scheduled_str =
                     task.scheduled_time
-                        .map_or(
-                            "⏰ Not scheduled".to_string(),
-                            |utc_dt| match timezone_service
+                        .map_or("⏰ Not scheduled".to_string(), |utc_dt| {
+                            // Use a closure to handle the async operation
+                            let timezone_service = timezone_service.clone();
+                            let user_timezone = user_timezone.clone();
+
+                            // We'll format this separately since we can't use await in the closure
+                            // For now, use the synchronous method as fallback
+                            match timezone_service
                                 .format_from_utc_with_timezone(utc_dt, &user_timezone)
                             {
                                 Ok(local_time) => format!("> {}", local_time),
                                 Err(_) => format!("> {} (UTC)", utc_dt.format("%Y-%m-%d %H:%M")),
-                            },
-                        );
+                            }
+                        });
 
                 single_tasks_field.push_str(&format!("#{} - __**{}**__\n\n", task.id, task.title));
 
@@ -374,16 +435,26 @@ impl TaskService {
             );
         }
 
-        // Weekly tasks
+        // Weekly tasks - need to collect all recurrence strings first
         if !recurrent_tasks.is_empty() {
             let mut recurrent_tasks_field = String::new();
 
+            // Collect all recurrence strings first
+            let mut recurrence_strings = Vec::new();
             for task in &recurrent_tasks {
-                let recurrence_str = self.format_recurrence_for_display_with_timezone(
-                    &task.recurrence,
-                    &timezone_service,
-                    &user_timezone,
-                );
+                let recurrence_str = self
+                    .format_recurrence_for_display_with_timezone(
+                        &task.recurrence,
+                        &timezone_service,
+                        user_id,
+                    )
+                    .await;
+                recurrence_strings.push((task.id, recurrence_str));
+            }
+
+            // Now build the field content
+            for (task_index, task) in recurrent_tasks.iter().enumerate() {
+                let recurrence_str = &recurrence_strings[task_index].1;
 
                 recurrent_tasks_field
                     .push_str(&format!("#{} - __**{}**__\n\n", task.id, task.title));
@@ -410,17 +481,32 @@ impl TaskService {
             );
         }
 
-        // Footer
+        // Footer with localized current time
         let now = Utc::now();
-        let local_time_str =
-            match timezone_service.format_from_utc_with_timezone(now, &user_timezone) {
-                Ok(local_time) => local_time,
-                Err(_) => now.format("%Y-%m-%d %H:%M").to_string() + " (UTC)",
-            };
+        let local_time_str = match timezone_service
+            .format_from_utc_for_user(now, user_id)
+            .await
+        {
+            Ok(local_time) => local_time,
+            Err(_) => {
+                // Fallback to old method
+                match timezone_service.format_from_utc_with_timezone(now, &user_timezone) {
+                    Ok(local_time) => local_time,
+                    Err(_) => now.format("%Y-%m-%d %H:%M").to_string() + " (UTC)",
+                }
+            }
+        };
+
+        // Format description based on user's date format preference
+        let format_description = match user_date_format.as_str() {
+            "DMY" => "DD-MM-YYYY",
+            "MDY" => "MM-DD-YYYY",
+            "YMD" | _ => "YYYY-MM-DD",
+        };
 
         embed = embed.footer(CreateEmbedFooter::new(format!(
-            "\n\u{200B}\nTimezone: {} - {}",
-            user_timezone, local_time_str
+            "\n\u{200B}\nTimezone: {} | Date format: {} | Current time: {}",
+            user_timezone, format_description, local_time_str
         )));
 
         embed
@@ -532,15 +618,16 @@ impl TaskService {
             None => None,             // don't change existing description
         };
 
-        self.task_repo.edit_task(
-            task_id,
-            new_title,
-            final_description,
-            new_scheduled_time,
-            new_recurrence,
-            None,
-        )
-        .await
+        self.task_repo
+            .edit_task(
+                task_id,
+                new_title,
+                final_description,
+                new_scheduled_time,
+                new_recurrence,
+                None,
+            )
+            .await
     }
 
     // === SCHEDULER BUSINESS LOGIC ===

@@ -26,7 +26,7 @@ pub struct Task {
     pub scheduled_time: Option<DateTime<Utc>>, // next scheduled time for task
     pub recurrence: Option<Recurrence>,
     pub notification_method: NotificationMethod,
-    pub channel_id: Option<u64>,
+    pub channel_id: Option<u64>, // Specific channel for channel notifications
     pub mention: Option<String>, // Optional @user or @role mention for notifications
 }
 
@@ -76,6 +76,25 @@ impl Task {
             channel_id,
             mention,
         }
+    }
+
+    /// Validates that channel_id is provided when notification method requires it
+    pub fn validate_channel_requirement(&self) -> Result<(), String> {
+        match self.notification_method {
+            NotificationMethod::Channel | NotificationMethod::Both => {
+                if self.channel_id.is_none() {
+                    return Err(
+                        "A channel must be specified for Channel/Both notification methods"
+                            .to_string(),
+                    );
+                }
+            }
+            NotificationMethod::DM => {
+                // DM doesn't require channel_id, but if one is provided, it's ignored
+                // You could add validation here to reject tasks with channel_id for DM if desired
+            }
+        }
+        Ok(())
     }
 
     /// Calculates the next occurrence datetime for a recurring task. Returns `None` if the task is not recurring

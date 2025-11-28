@@ -6,7 +6,7 @@ use serenity::builder::{
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 use std::sync::Arc;
-use tracing::{error};
+use tracing::error;
 
 pub fn register_list_tasks_command() -> CreateCommand {
     CreateCommand::new("list_tasks").description("📋 Show your current tasks")
@@ -27,7 +27,7 @@ pub async fn run_list_tasks(
 
     let builder = CreateInteractionResponse::Message(
         CreateInteractionResponseMessage::default()
-            .content(format!("{}, these are your tasks\n", user_mention))
+            .content(format!("These are your tasks, {} \n", user_mention))
             .add_embed(embed_response)
             .ephemeral(false),
     );

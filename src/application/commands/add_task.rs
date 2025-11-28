@@ -106,6 +106,16 @@ pub async fn run_add_task(
 
     // get user's timezone to display current time
     let user_id = command.user.id.get();
+
+    // Get user's date format for dynamic placeholders
+    let date_format_placeholder = match timezone_service
+        .get_user_date_format_placeholder(user_id)
+        .await
+    {
+        Ok(placeholder) => placeholder,
+        Err(_) => "YYYY-MM-DD", // Default fallback
+    };
+
     let user_timezone = match timezone_service.get_user_timezone(user_id).await {
         Ok(Some(tz)) => tz,
         _ => "UTC".to_string(),
@@ -114,11 +124,11 @@ pub async fn run_add_task(
     // Get current time in user's timezone for placeholders
     let current_time_info = match timezone_service.get_current_time_for_timezone(&user_timezone) {
         Ok(time_string) => {
-            // Parsear el string "YYYY-MM-DD HH:MM" para extraer fecha y hora por separado
+            // Parsear el string para extraer fecha y hora por separado
             let parts: Vec<&str> = time_string.split_whitespace().collect();
             if parts.len() == 2 {
-                let date_part = parts[0].to_string(); // "YYYY-MM-DD"
-                let time_part = parts[1].to_string(); // "HH:MM"
+                let date_part = parts[0].to_string();
+                let time_part = parts[1].to_string();
                 Some((date_part, time_part))
             } else {
                 None
@@ -137,10 +147,17 @@ pub async fn run_add_task(
             .required(true)
             .placeholder("Example: Mon,Wed,Fri or Monday,Wednesday,Friday")
     } else {
+        // Use dynamic date placeholder based on user's format - FIXED
         let date_placeholder = if let Some((date_part, _)) = &current_time_info {
-            format!("Example: {} or your desired date", date_part)
+            // Use the actual current date from the timezone service (which now respects format)
+            format!("Example: {}", date_part)
         } else {
-            "Example: 2025-11-01".to_string()
+            // Fallback to format examples based on user's preference
+            match date_format_placeholder {
+                "DD-MM-YYYY" => "Example: 27-11-2025".to_string(),
+                "MM-DD-YYYY" => "Example: 11-27-2025".to_string(),
+                "YYYY-MM-DD" | _ => "Example: 2025-11-27".to_string(),
+            }
         };
 
         CreateInputText::new(InputTextStyle::Short, "Date", "date")

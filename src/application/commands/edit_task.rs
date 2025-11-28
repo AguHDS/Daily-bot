@@ -59,31 +59,44 @@ fn format_days_for_display(days: &[chrono::Weekday]) -> String {
         .join(",")
 }
 
-/// Format date for display (single tasks)
-fn format_date_for_display(
+/// Format date for display (single tasks) using user's preferred format - now async
+async fn format_date_for_display(
     task: &crate::domain::entities::task::Task,
     timezone_service: &TimezoneService,
     user_timezone: &str,
+    user_id: u64,
 ) -> String {
     if let Some(dt) = task.scheduled_time {
-        match timezone_service.format_from_utc_with_timezone(dt, user_timezone) {
+        // Use the new method that respects user's date format preference
+        match timezone_service.format_from_utc_for_user(dt, user_id).await {
             Ok(local_time) => local_time
                 .split_whitespace()
                 .next()
                 .unwrap_or("")
                 .to_string(),
-            Err(_) => dt.format("%Y-%m-%d").to_string(),
+            Err(_) => {
+                // Fallback to old method if new one fails
+                match timezone_service.format_from_utc_with_timezone(dt, user_timezone) {
+                    Ok(local_time) => local_time
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("")
+                        .to_string(),
+                    Err(_) => dt.format("%Y-%m-%d").to_string(),
+                }
+            }
         }
     } else {
         "Date missing".to_string()
     }
 }
 
-/// Format task date for final display
-fn format_task_date(
+/// Format task date for final display using user's preferred format
+async fn format_task_date(
     task: &crate::domain::entities::task::Task,
     timezone_service: &TimezoneService,
     user_timezone: &str,
+    user_id: u64,
 ) -> String {
     if let Some(Recurrence::Weekly { days, hour, minute }) = &task.recurrence {
         let days_str = format_days_for_display(days);
@@ -99,9 +112,16 @@ fn format_task_date(
 
         format!("{} at {}", days_str, time_part)
     } else if let Some(dt) = task.scheduled_time {
-        match timezone_service.format_from_utc_with_timezone(dt, user_timezone) {
+        // Use the new method that respects user's date format preference
+        match timezone_service.format_from_utc_for_user(dt, user_id).await {
             Ok(local_time) => local_time,
-            Err(_) => dt.format("%Y-%m-%d %H:%M").to_string(),
+            Err(_) => {
+                // Fallback to old method if new one fails
+                match timezone_service.format_from_utc_with_timezone(dt, user_timezone) {
+                    Ok(local_time) => local_time,
+                    Err(_) => dt.format("%Y-%m-%d %H:%M").to_string(),
+                }
+            }
         }
     } else {
         "Date missing".to_string()
@@ -155,32 +175,49 @@ pub async fn run_edit_task(
     let mut components: Vec<CreateActionRow> = Vec::new();
 
     if !single_tasks.is_empty() {
-        let options = single_tasks
-            .iter()
-            .map(|task| {
-                let display_title = if task.title.len() > 30 {
-                    format!("{}...", &task.title[..30])
-                } else {
-                    task.title.clone()
-                };
+        // Pre-collect all the formatted dates first
+        let mut formatted_tasks = Vec::new();
+        for task in &single_tasks {
+            let display_title = if task.title.len() > 30 {
+                format!("{}...", &task.title[..30])
+            } else {
+                task.title.clone()
+            };
 
-                let label = if let Some(dt) = task.scheduled_time {
-                    match timezone_service.format_from_utc_with_timezone(dt, &user_timezone) {
-                        Ok(local_time) => {
-                            format!("#{}: {} (Single on {})", task.id, display_title, local_time)
-                        }
-                        Err(_) => format!(
-                            "#{}: {} (Single on {})",
-                            task.id,
-                            display_title,
-                            dt.format("%Y-%m-%d %H:%M")
-                        ),
+            let label = if let Some(dt) = task.scheduled_time {
+                match timezone_service
+                    .format_from_utc_for_user(dt, user_id)
+                    .await
+                {
+                    Ok(local_time) => {
+                        format!("#{}: {} (Single on {})", task.id, display_title, local_time)
                     }
-                } else {
-                    format!("#{}: {}", task.id, display_title)
-                };
-                CreateSelectMenuOption::new(label, task.id.to_string())
-            })
+                    Err(_) => {
+                        match timezone_service.format_from_utc_with_timezone(dt, &user_timezone) {
+                            Ok(local_time) => {
+                                format!(
+                                    "#{}: {} (Single on {})",
+                                    task.id, display_title, local_time
+                                )
+                            }
+                            Err(_) => format!(
+                                "#{}: {} (Single on {})",
+                                task.id,
+                                display_title,
+                                dt.format("%Y-%m-%d %H:%M")
+                            ),
+                        }
+                    }
+                }
+            } else {
+                format!("#{}: {}", task.id, display_title)
+            };
+            formatted_tasks.push((task.id, label));
+        }
+
+        let options = formatted_tasks
+            .into_iter()
+            .map(|(task_id, label)| CreateSelectMenuOption::new(label, task_id.to_string()))
             .collect::<Vec<_>>();
 
         let select =
@@ -245,7 +282,8 @@ pub async fn run_edit_task(
             CreateInteractionResponse::Message(
                 CreateInteractionResponseMessage::default()
                     .content("Select a task to edit:")
-                    .components(components),
+                    .components(components)
+                    .ephemeral(true),
             ),
         )
         .await;
@@ -350,10 +388,10 @@ pub async fn handle_edit_select(
             ("Mon,Wed,Fri".to_string(), "New days")
         }
     } else {
-        (
-            format_date_for_display(&task, timezone_service, &user_timezone),
-            "New date",
-        )
+        // Now this is async, so we need to await it
+        let placeholder =
+            format_date_for_display(&task, timezone_service, &user_timezone, user_id).await;
+        (placeholder, "New date")
     };
 
     let date_days_input =
@@ -519,7 +557,8 @@ pub async fn process_edit_task_modal(
                 _ => "UTC".to_string(),
             };
 
-            let date_str = format_task_date(&updated_task, timezone_service, &user_timezone);
+            let date_str =
+                format_task_date(&updated_task, timezone_service, &user_timezone, user_id).await;
 
             let embed = CreateEmbed::new()
                 .title("Task Updated Successfully")

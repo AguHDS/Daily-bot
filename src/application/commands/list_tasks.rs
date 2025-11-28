@@ -6,7 +6,7 @@ use serenity::builder::{
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 use std::sync::Arc;
-use tracing::{error};
+use tracing::error;
 
 pub fn register_list_tasks_command() -> CreateCommand {
     CreateCommand::new("list_tasks").description("📋 Show your current tasks")

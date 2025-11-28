@@ -1,3 +1,7 @@
+use crate::application::commands::utils::date_format::{
+    get_inferred_date_format_info, get_user_date_format_info,
+};
+use crate::application::services::timezone_service::TimezoneService;
 use serenity::builder::CreateEmbedFooter;
 use serenity::builder::{
     CreateActionRow, CreateButton, CreateEmbed, CreateInteractionResponse,
@@ -7,8 +11,7 @@ use serenity::model::application::CommandInteraction;
 use serenity::model::colour::Colour;
 use serenity::prelude::*;
 use std::sync::Arc;
-use crate::application::services::timezone_service::TimezoneService;
-use tracing::{error};
+use tracing::error;
 
 pub fn register_timezone_command() -> serenity::builder::CreateCommand {
     serenity::builder::CreateCommand::new("timezone")
@@ -133,7 +136,7 @@ async fn show_timezone_selection(
                 CreateInteractionResponseMessage::new()
                     .content("🔍 **Select your timezone:**")
                     .components(vec![action_row])
-                    .ephemeral(false),
+                    .ephemeral(true),
             ),
         )
         .await;
@@ -166,15 +169,19 @@ async fn show_timezone_confirmation(
         }
     };
 
+    // Use utility function to get date format info
+    let (_inferred_format, format_description) =
+        get_inferred_date_format_info(timezone_service, timezone_id);
+
     let embed = CreateEmbed::new()
         .title("🕐 Timezone confirmation")
         .description(format!(
-            "**Selected timezone:** {}\n**Hour:** `{}`\n\nThis is your current timezone?",
-            timezone_info.text, current_time
+            "**Selected timezone:** {}\n**Current time:** `{}`\n**Date format:** {}\n\nIs this your correct local time?",
+            timezone_info.text, current_time, format_description
         ))
         .colour(Colour::DARK_GREEN)
         .footer(CreateEmbedFooter::new(
-            "If it's not correct, cancel and find a more specific location",
+            "Date format will be automatically set based on your location. You can change it later if needed.",
         ));
 
     let accept_button = CreateButton::new(format!("timezone_confirm:{}", timezone_id))
@@ -281,15 +288,19 @@ pub async fn handle_timezone_select(
         }
     };
 
+    // Use utility function to get date format info
+    let (_inferred_format, format_description) =
+        get_inferred_date_format_info(timezone_service, &timezone_id);
+
     let embed = CreateEmbed::new()
         .title("🕐 Timezone confirmation")
         .description(format!(
-            "**Selected timezone:** {}\n**Hour:** `{}`\n\nThis your correct local time?",
-            timezone_info.text, current_time
+            "**Selected timezone:** {}\n**Current time:** `{}`\n**Date format:** {}\n\nIs this your correct local time?",
+            timezone_info.text, current_time, format_description
         ))
         .colour(Colour::DARK_GREEN)
         .footer(CreateEmbedFooter::new(
-            "If it is not correct, cancel and search for a more specific location",
+            "Date format will be automatically set based on your location. You can change it later if needed.",
         ));
 
     let accept_button = CreateButton::new(format!("timezone_confirm:{}", timezone_id))
@@ -333,17 +344,21 @@ pub async fn handle_timezone_confirm(
                 Err(_) => "Error obtaining hour".to_string(),
             };
 
+            // Use utility function to get user's date format info
+            let date_format_info = get_user_date_format_info(timezone_service, user_id).await;
+
             let embed = CreateEmbed::new()
-                .title("Timezone setted up correctly!")
+                .title("✅ Timezone set up correctly!")
                 .description(format!(
-                    "Timezone setted up correctly for {}!",
+                    "Timezone configured successfully for {}!",
                     interaction.user.mention()
                 ))
-                .field("Zone", format!("`{}`", timezone_id), false)
-                .field("Hour", format!("`{}`", current_time), false)
+                .field("Timezone", format!("`{}`", timezone_id), true)
+                .field("Current Time", format!("`{}`", current_time), true)
+                .field("Date Format", date_format_info, false)
                 .color(serenity::model::colour::Colour::DARK_GREEN)
                 .footer(CreateEmbedFooter::new(
-                    "Now you can create task with your current time",
+                    "When creating tasks, the date field will now show the format familiar to your region",
                 ));
 
             let _ = interaction

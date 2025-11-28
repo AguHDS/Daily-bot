@@ -72,10 +72,29 @@ impl TimezoneManager {
         }
     }
 
-    /// Search timezones by city, country, using fuzzy matching
+    /// Search timezones by city, country, using fuzzy matching with prioritization
     pub fn search_timezones(&self, query: &str) -> Vec<&TimezoneInfo> {
-        let query_lower = query.to_lowercase();
+        let query_lower = query.to_lowercase().trim().to_string();
         let mut results = Vec::new();
+
+        // SPECIAL CASE: US timezones
+        if query_lower == "america"
+            || query_lower == "usa"
+            || query_lower == "us"
+            || query_lower == "united states"
+        {
+            return self.search_us_timezones();
+        }
+
+        // SPECIAL CASE: Canada timezones
+        if query_lower == "canada" || query_lower == "canadá" {
+            return self.search_canada_timezones();
+        }
+
+        // SPECIAL CASE: North America - both US and Canada
+        if query_lower == "north america" {
+            return self.search_north_america_timezones();
+        }
 
         // exact search in cities first
         if let Some(timezone_names) = self.city_to_timezone.get(&query_lower) {
@@ -93,53 +112,242 @@ impl TimezoneManager {
             return results;
         }
 
-        // fuzzy search in all timezones and cities
-        let mut fuzzy_results: Vec<(i64, &TimezoneInfo)> = Vec::new();
+        // fuzzy search with prioritization
+        let mut fuzzy_results: Vec<(i64, &TimezoneInfo, u8)> = Vec::new(); // (score, tz_info, priority)
 
         for tz_info in self.timezones.values() {
-            // search in the descriptive text
-            let text_score = self
+            let mut priority = 0;
+
+            // Priority 1: Exact match in value (timezone name)
+            let value_score = self
                 .fuzzy_matcher
-                .fuzzy_match(&tz_info.text.to_lowercase(), &query_lower);
-            if let Some(score) = text_score {
-                fuzzy_results.push((score, tz_info));
+                .fuzzy_match(&tz_info.value.to_lowercase(), &query_lower);
+            if let Some(score) = value_score {
+                if score > 50 {
+                    // Good match threshold
+                    priority = 3;
+                }
+                fuzzy_results.push((score, tz_info, priority));
             }
 
-            // search in UTC cities
+            // Priority 2: Search in UTC cities (higher priority for direct matches)
             for utc_tz in &tz_info.utc {
                 if let Some(city_name) = Self::extract_city_name(utc_tz) {
                     let city_score = self
                         .fuzzy_matcher
                         .fuzzy_match(&city_name.to_lowercase(), &query_lower);
                     if let Some(score) = city_score {
-                        fuzzy_results.push((score, tz_info));
+                        let city_priority = if score > 70 { 4 } else { 2 };
+                        fuzzy_results.push((score, tz_info, city_priority));
                     }
                 }
             }
 
-            // search in the value (principal name)
-            let value_score = self
+            // Priority 3: Search in descriptive text (lower priority)
+            let text_score = self
                 .fuzzy_matcher
-                .fuzzy_match(&tz_info.value.to_lowercase(), &query_lower);
-            if let Some(score) = value_score {
-                fuzzy_results.push((score, tz_info));
+                .fuzzy_match(&tz_info.text.to_lowercase(), &query_lower);
+            if let Some(score) = text_score {
+                // Lower priority for text matches to avoid generic results like "Central America"
+                let text_priority = if score > 60 && !self.is_generic_timezone(tz_info) {
+                    1
+                } else {
+                    0
+                };
+                fuzzy_results.push((score, tz_info, text_priority));
             }
         }
 
-        // sort by score (highest first) and remove duplicates
-        fuzzy_results.sort_by(|a, b| b.0.cmp(&a.0));
+        // Sort by priority first, then by score
+        fuzzy_results.sort_by(|a, b| {
+            b.2.cmp(&a.2) // Higher priority first
+                .then(b.0.cmp(&a.0)) // Then higher score
+        });
 
-        for (_, tz_info) in fuzzy_results {
+        for (_, tz_info, _) in fuzzy_results {
             if !results.contains(&tz_info) {
                 results.push(tz_info);
-                // Limitar a 10 resultados
-                if results.len() >= 10 {
+                // Limit to 8 results for better UX
+                if results.len() >= 8 {
                     break;
                 }
             }
         }
 
         results
+    }
+
+    /// Special search for US timezones only
+    fn search_us_timezones(&self) -> Vec<&TimezoneInfo> {
+        let mut results = Vec::new();
+        let mut seen_values = std::collections::HashSet::new();
+
+        let us_utc_timezones = [
+            // Eastern Time Zone
+            "America/New_York",
+            "America/Detroit",
+            "America/Indiana/Indianapolis",
+            "America/Indiana/Marengo",
+            "America/Indiana/Vevay",
+            "America/Louisville",
+            
+            // Central Time Zone
+            "America/Chicago",
+            "America/Menominee",
+            "America/Indiana/Knox",
+            
+            // Mountain Time Zone
+            "America/Denver",
+            "America/Boise",
+            
+            // Mountain Standard (Arizona - no DST)
+            "America/Phoenix",
+            
+            // Pacific Time Zone
+            "America/Los_Angeles",
+            
+            // Alaska Time Zone
+            "America/Anchorage",
+            "America/Juneau",
+            
+            // Hawaii
+            "Pacific/Honolulu",
+        ];
+
+        for utc_tz in &us_utc_timezones {
+            if let Some(tz_info) = self.timezones.get(*utc_tz) {
+                if seen_values.insert(&tz_info.value) {
+                    results.push(tz_info);
+                }
+            }
+        }
+
+        results.sort_by(|a, b| {
+            b.offset
+                .partial_cmp(&a.offset)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        results
+    }
+
+    /// Special search for Canada timezones only
+    fn search_canada_timezones(&self) -> Vec<&TimezoneInfo> {
+        let mut results = Vec::new();
+        let mut seen_values = std::collections::HashSet::new();
+
+        let canada_utc_timezones = [
+            // Newfoundland Time (UTC-3:30) - Unique Canadian timezone
+            "America/St_Johns",
+            
+            // Atlantic Time Zone (Canada)
+            "America/Halifax",
+            "America/Moncton",
+            "America/Glace_Bay",
+            
+            // Eastern Time Zone (shared with US)
+            "America/Toronto",
+            "America/Montreal",
+            "America/Iqaluit",
+            
+            // Central Time Zone (shared with US)
+            "America/Winnipeg",
+            
+            // Saskatchewan (Central Standard - no DST)
+            "America/Regina",
+            
+            // Mountain Time Zone (shared with US)
+            "America/Edmonton",
+            
+            // Pacific Time Zone (shared with US)
+            "America/Vancouver",
+        ];
+
+        for utc_tz in &canada_utc_timezones {
+            if let Some(tz_info) = self.timezones.get(*utc_tz) {
+                if seen_values.insert(&tz_info.value) {
+                    results.push(tz_info);
+                }
+            }
+        }
+
+        results.sort_by(|a, b| {
+            b.offset
+                .partial_cmp(&a.offset)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        results
+    }
+
+    /// Special search for all North American timezones (US + Canada)
+    fn search_north_america_timezones(&self) -> Vec<&TimezoneInfo> {
+        let mut results = Vec::new();
+        let mut seen_values = std::collections::HashSet::new();
+
+        // Combine both US and Canada timezones
+        let north_america_utc_timezones = [
+            // Canada - Newfoundland
+            "America/St_Johns",
+            // Canada - Atlantic
+            "America/Halifax",
+            "America/Moncton",
+            // US/Canada - Eastern
+            "America/New_York",
+            "America/Toronto",
+            "America/Detroit",
+            "America/Indiana/Indianapolis",
+            // US/Canada - Central
+            "America/Chicago",
+            "America/Winnipeg",
+            // Canada - Saskatchewan
+            "America/Regina",
+            // US/Canada - Mountain
+            "America/Denver",
+            "America/Edmonton",
+            "America/Boise",
+            // US - Arizona
+            "America/Phoenix",
+            // US/Canada - Pacific
+            "America/Los_Angeles",
+            "America/Vancouver",
+            // US - Alaska
+            "America/Anchorage",
+            "America/Juneau",
+            // US - Hawaii
+            "Pacific/Honolulu",
+        ];
+
+        for utc_tz in &north_america_utc_timezones {
+            if let Some(tz_info) = self.timezones.get(*utc_tz) {
+                if seen_values.insert(&tz_info.value) {
+                    results.push(tz_info);
+                }
+            }
+        }
+
+        results.sort_by(|a, b| {
+            b.offset
+                .partial_cmp(&a.offset)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        results
+    }
+
+    /// Check if a timezone is too generic (like "Central America" when searching for US)
+    fn is_generic_timezone(&self, tz_info: &TimezoneInfo) -> bool {
+        let generic_terms = [
+            "central america",
+            "south america",
+            "latin america",
+            "caribbean",
+            "generic",
+            "etc/gmt",
+        ];
+
+        let text_lower = tz_info.text.to_lowercase();
+        generic_terms.iter().any(|term| text_lower.contains(term))
     }
 
     /// Get time zone information by exact name

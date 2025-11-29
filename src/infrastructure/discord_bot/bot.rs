@@ -16,6 +16,7 @@ use crate::infrastructure::repositories::{
 };
 use crate::infrastructure::scheduler::priority_queue_scheduler::PriorityQueueScheduler;
 use crate::infrastructure::timezone::timezone_manager::TimezoneManager;
+use crate::utils::ModalStorage;
 use serenity::all::{GuildId, Interaction, Ready};
 use serenity::prelude::*;
 use std::sync::Arc;
@@ -29,6 +30,7 @@ pub struct CommandHandler {
     pub sqlite_scheduler_repo: Arc<SqliteSchedulerRepository>,
     pub server_features_orchestrator: Arc<ServerFeaturesOrchestrator>,
     pub server_interaction_handler: Arc<ServerInteractionHandler>,
+    pub modal_storage: Arc<ModalStorage>,
 }
 
 impl CommandHandler {
@@ -44,7 +46,6 @@ impl CommandHandler {
             crate::application::commands::register_remove_task_command(),
             crate::application::commands::register_help_command(),
             crate::application::commands::edit_task::register_edit_task_command(),
-            // REMOVED: set_notification_channel command
             crate::application::commands::timezone::register_timezone_command(),
         ];
 
@@ -114,10 +115,10 @@ impl EventHandler for CommandHandler {
                         command,
                         &self.task_orchestrator,
                         &self.timezone_service,
+                        &self.modal_storage,
                     )
                     .await;
                 }
-                // REMOVED: "set_notification_channel" handler
                 "timezone" => {
                     crate::application::commands::timezone::run_timezone_command(
                         &ctx,
@@ -174,6 +175,7 @@ impl EventHandler for CommandHandler {
                     &interaction,
                     &self.task_orchestrator,
                     &self.timezone_service,
+                    &self.modal_storage,
                 )
                 .await;
             }
@@ -243,6 +245,19 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
 
     let server_interaction_handler = Arc::new(ServerInteractionHandler::new(kick_service));
 
+    // Create modal storage with 5-minute TTL (plenty of time for users to fill modals)
+    let modal_storage = Arc::new(ModalStorage::new(std::time::Duration::from_secs(300)));
+
+    // Spawn background task to clean up expired modal storage entries every minute
+    let storage_for_cleanup = modal_storage.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            storage_for_cleanup.cleanup_expired().await;
+        }
+    });
+
     let handler = CommandHandler {
         task_service,
         task_orchestrator,
@@ -251,6 +266,7 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         sqlite_scheduler_repo,
         server_features_orchestrator,
         server_interaction_handler,
+        modal_storage,
     };
 
     let mut client = Client::builder(&token, intents)

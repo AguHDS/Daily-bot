@@ -2,6 +2,7 @@ use crate::application::commands::utils::get_string_option;
 use crate::application::services::TaskOrchestrator;
 use crate::application::services::timezone_service::TimezoneService;
 use crate::domain::entities::task::NotificationMethod;
+use crate::utils::{ModalStorage, TaskModalMetadata, generate_modal_id};
 use serenity::{
     all::{
         ActionRowComponent, CommandInteraction, CommandOptionType, CreateCommand,
@@ -61,6 +62,7 @@ pub async fn run_add_task(
     command: &CommandInteraction,
     _task_orchestrator: &Arc<TaskOrchestrator>,
     timezone_service: &Arc<TimezoneService>,
+    modal_storage: &Arc<ModalStorage>,
 ) {
     let options = &command.data.options;
 
@@ -140,12 +142,12 @@ pub async fn run_add_task(
     // Create modal inputs
     let title_input = CreateInputText::new(InputTextStyle::Short, "Title", "task_title")
         .required(true)
-        .placeholder("Enter a descriptive title for your task");
+        .placeholder("Enter a title for your task");
 
     let date_days_input = if task_type == "weekly" {
         CreateInputText::new(InputTextStyle::Short, "Days", "days")
             .required(true)
-            .placeholder("Example: Mon,Wed,Fri or Monday,Wednesday,Friday")
+            .placeholder("Example: Mon,Wed,Fri")
     } else {
         // Use dynamic date placeholder based on user's format - FIXED
         let date_placeholder = if let Some((date_part, _)) = &current_time_info {
@@ -166,7 +168,7 @@ pub async fn run_add_task(
     };
 
     let time_placeholder = if let Some((_, time_part)) = &current_time_info {
-        format!("Example: {} or your desired time", time_part)
+        format!("Example: {}", time_part)
     } else {
         "Example: 15:30".to_string()
     };
@@ -183,21 +185,20 @@ pub async fn run_add_task(
     .required(false)
     .placeholder("Add more details about your task...");
 
-    // Encode metadata in modal ID including channel_id
-    let mention_safe = if mention.is_empty() {
-        "NONE".to_string()
-    } else {
-        mention.replace('|', "PIPE").replace('\n', "NEWLINE")
-    };
+    // Generate a unique short ID for the modal
+    let modal_id = generate_modal_id();
 
-    let channel_id_str = channel_id
-        .map(|id| id.to_string())
-        .unwrap_or("NONE".to_string());
-
-    let modal_custom_id = format!(
-        "add_task_modal|{}|{}|{}|{}",
-        task_type, notification_method, channel_id_str, mention_safe
+    // Store metadata in temporary storage (avoids custom_id length limit)
+    let metadata = TaskModalMetadata::new(
+        task_type.clone(),
+        notification_method.clone(),
+        channel_id,
+        if mention.is_empty() { None } else { Some(mention.clone()) },
     );
+    
+    modal_storage.store(modal_id.clone(), metadata).await;
+
+    let modal_custom_id = modal_id;
 
     let modal = CreateModal::new(&modal_custom_id, "📅 Create New Task").components(vec![
         CreateActionRow::InputText(title_input),
@@ -220,42 +221,26 @@ pub async fn process_task_modal_input(
     modal: &ModalInteraction,
     task_orchestrator: &Arc<TaskOrchestrator>,
     timezone_service: &Arc<TimezoneService>,
+    modal_storage: &Arc<ModalStorage>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Parse custom_id to get task_type, notification_method, channel_id, and mention: "add_task_modal|task_type|notification_method|channel_id|mention"
-    let parts: Vec<&str> = modal.data.custom_id.split('|').collect();
-    if parts.len() != 5 {
-        return Err("Invalid modal custom_id format - expected 5 parts".into());
-    }
-
-    let task_type = parts[1];
-    let notification_method_str = parts[2];
-    let channel_id_str = parts[3];
-    let mention_safe = parts[4];
-
-    // Parse channel_id - NOW VALIDATED EARLIER IN run_add_task
-    let channel_id = if channel_id_str == "NONE" {
-        None
-    } else {
-        match channel_id_str.parse::<u64>() {
-            Ok(id) => Some(id),
-            Err(_) => {
-                let response = CreateInteractionResponse::Message(
-                    CreateInteractionResponseMessage::default()
-                        .content("❌ Invalid channel specified")
-                        .ephemeral(true),
-                );
-                modal.create_response(&ctx.http, response).await?;
-                return Ok(());
-            }
+    // Retrieve metadata from storage using the modal custom_id
+    let metadata = match modal_storage.retrieve(&modal.data.custom_id).await {
+        Some(meta) => meta,
+        None => {
+            let response = CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::default()
+                    .content("❌ Modal session expired. Please try again.")
+                    .ephemeral(true),
+            );
+            modal.create_response(&ctx.http, response).await?;
+            return Ok(());
         }
     };
 
-    // Decode mention by reversing the safe encoding
-    let mention = if mention_safe == "NONE" {
-        None
-    } else {
-        Some(mention_safe.replace("PIPE", "|").replace("NEWLINE", "\n"))
-    };
+    let task_type = metadata.task_type.as_str();
+    let notification_method_str = metadata.notification_method.as_str();
+    let channel_id = metadata.channel_id;
+    let mention = metadata.mention;
 
     // Extract inputs from the modal (4 fields: title, date/days, time, description)
     let title = modal

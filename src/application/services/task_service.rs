@@ -413,34 +413,47 @@ impl TaskService {
 
                 single_tasks_field.push_str(&format!("#{} - __**{}**__\n\n", task.id, task.title));
 
+                // DESCRIPTION con label
                 match &task.description {
                     Some(desc) if !desc.trim().is_empty() => {
-                        single_tasks_field.push_str(&format!("   *{}*\n", desc));
+                        single_tasks_field.push_str(&format!("**Description:**\n{}\n", desc));
                     }
                     _ => {
-                        single_tasks_field.push_str("   *(no description)*\n");
+                        single_tasks_field.push_str("**Description:**\n*(no description)*\n");
                     }
                 }
 
-                single_tasks_field.push_str(&format!("   {}\n", scheduled_str));
+                // ESPACIO entre Description y Schedule
+                single_tasks_field.push_str("\n");
 
-                // INFORMACIÓN DE MENCIÓN - Mencionar al creador por defecto si no hay menciones
+                // SCHEDULE (para single tasks)
+                single_tasks_field.push_str(&format!("{}\n", scheduled_str));
+
+                // MENTIONS
                 if let Some(mention) = &task.mention {
                     if !mention.trim().is_empty() {
-                        single_tasks_field.push_str(&format!("   **Mentions:** {}\n", mention));
+                        single_tasks_field.push_str(&format!("**Mentions:** {}\n", mention));
                     } else {
-                        // Si mention existe pero está vacío, mencionar al creador
                         single_tasks_field
-                            .push_str(&format!("   **Mentions:** <@{}>\n", task.user_id));
+                            .push_str(&format!("**Mentions:** <@{}>\n", task.user_id));
                     }
                 } else {
-                    // Si no hay mention configurada, mencionar al creador
-                    single_tasks_field.push_str(&format!("   **Mentions:** <@{}>\n", task.user_id));
+                    single_tasks_field.push_str(&format!("**Mentions:** <@{}>\n", task.user_id));
                 }
 
-                // INFORMACIÓN DE CANAL SI EXISTE
+                // CHANNEL
                 if let Some(channel_id) = task.channel_id {
-                    single_tasks_field.push_str(&format!("   **Channel:** <#{}>\n", channel_id));
+                    single_tasks_field.push_str(&format!("**Channel:** <#{}>\n", channel_id));
+                }
+
+                // TIME REMAINING al final
+                if let Some(scheduled_time) = task.scheduled_time {
+                    let time_remaining =
+                        crate::application::commands::utils::time_remaining::format_time_remaining(
+                            scheduled_time,
+                        );
+                    single_tasks_field
+                        .push_str(&format!("**Time remaining:** {}\n", time_remaining));
                 }
 
                 single_tasks_field.push_str("\n");
@@ -480,33 +493,47 @@ impl TaskService {
                 recurrent_tasks_field
                     .push_str(&format!("#{} - __**{}**__\n\n", task.id, task.title));
 
+                // DESCRIPTION con label
                 match &task.description {
                     Some(desc) if !desc.trim().is_empty() => {
-                        recurrent_tasks_field.push_str(&format!("   *{}*\n", desc));
+                        recurrent_tasks_field.push_str(&format!("**Description:**\n{}\n", desc));
                     }
                     _ => {
-                        recurrent_tasks_field.push_str("   *(no description)*\n");
+                        recurrent_tasks_field.push_str("**Description:**\n*(no description)*\n");
                     }
                 }
 
-                recurrent_tasks_field.push_str(&format!("   > {}\n", recurrence_str));
+                // ESPACIO entre Description y Schedule
+                recurrent_tasks_field.push_str("\n");
 
+                // SCHEDULE (para weekly tasks)
+                recurrent_tasks_field.push_str(&format!("{}\n", recurrence_str));
+
+                // MENTIONS
                 if let Some(mention) = &task.mention {
                     if !mention.trim().is_empty() {
-                        recurrent_tasks_field.push_str(&format!("   **Mentions:** {}\n", mention));
+                        recurrent_tasks_field.push_str(&format!("**Mentions:** {}\n", mention));
                     } else {
-                        // Si mention existe pero está vacío, mencionar al creador
                         recurrent_tasks_field
-                            .push_str(&format!("   **Mentions:** <@{}>\n", task.user_id));
+                            .push_str(&format!("**Mentions:** <@{}>\n", task.user_id));
                     }
                 } else {
-                    // Si no hay mention configurada, mencionar al creador
-                    recurrent_tasks_field
-                        .push_str(&format!("   **Mentions:** <@{}>\n", task.user_id));
+                    recurrent_tasks_field.push_str(&format!("**Mentions:** <@{}>\n", task.user_id));
                 }
 
+                // CHANNEL
                 if let Some(channel_id) = task.channel_id {
-                    recurrent_tasks_field.push_str(&format!("   **Channel:** <#{}>\n", channel_id));
+                    recurrent_tasks_field.push_str(&format!("**Channel:** <#{}>\n", channel_id));
+                }
+
+                // TIME REMAINING al final
+                if let Some(next_occurrence) = task.next_occurrence() {
+                    let time_remaining =
+                        crate::application::commands::utils::time_remaining::format_time_remaining(
+                            next_occurrence,
+                        );
+                    recurrent_tasks_field
+                        .push_str(&format!("**Time remaining:** {}\n", time_remaining));
                 }
 
                 recurrent_tasks_field.push_str("\n");

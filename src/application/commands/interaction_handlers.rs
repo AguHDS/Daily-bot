@@ -2,6 +2,7 @@ use crate::application::services::TaskOrchestrator;
 use crate::application::services::notification_service::NotificationService;
 use crate::application::services::task_service::TaskService;
 use crate::application::services::timezone_service::TimezoneService;
+use crate::utils::ModalStorage;
 use serenity::model::prelude::*;
 use serenity::prelude::*;
 use std::sync::Arc;
@@ -134,6 +135,7 @@ pub async fn handle_modal(
     interaction: &Interaction,
     task_orchestrator: &Arc<TaskOrchestrator>,
     timezone_service: &Arc<TimezoneService>,
+    modal_storage: &Arc<ModalStorage>,
 ) {
     if let Some(modal) = interaction.clone().modal_submit() {
         let custom_id = modal.data.custom_id.as_str();
@@ -149,12 +151,13 @@ pub async fn handle_modal(
             .unwrap_or_else(|err| {
                 error!("Failed to process edit task modal: {}", err);
             });
-        } else if custom_id.starts_with("add_task_modal|") {
+        } else if custom_id.starts_with("add_task_modal") {
             crate::application::commands::add_task::process_task_modal_input(
                 ctx,
                 &modal,
                 task_orchestrator,
                 timezone_service,
+                modal_storage,
             )
             .await
             .unwrap_or_else(|err| {

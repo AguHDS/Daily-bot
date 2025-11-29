@@ -8,7 +8,6 @@ Daily is a Discord bot designed to help users manage reminders and daily tasks d
 - /edit_task - Modify existing tasks
 - /list_tasks - View all formatted user tasks
 - /remove_task - Remove specific or all tasks
-- /set_notification_channel - Configure channel on the server where the bot will send notifications
 - /timezone - Set your timezone based to your country, city or state
 - /help - Show a help message
 

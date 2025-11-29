@@ -358,12 +358,12 @@ impl TaskService {
             Ok(Some(tz)) => tz,
             Ok(None) => {
                 return CreateEmbed::default()
-                .title("❌ Timezone Required")
-                .description("Please set your timezone first using `/timezone` to see task times correctly")
-                .color(Color::RED)
-                .footer(CreateEmbedFooter::new(
-                    "This ensures all times are displayed in your local timezone",
-                ));
+            .title("❌ Timezone Required")
+            .description("Please set your timezone first using `/timezone` to see task times correctly")
+            .color(Color::RED)
+            .footer(CreateEmbedFooter::new(
+                "This ensures all times are displayed in your local timezone",
+            ));
             }
             Err(_) => "UTC".to_string(),
         };
@@ -422,7 +422,28 @@ impl TaskService {
                     }
                 }
 
-                single_tasks_field.push_str(&format!("   {}\n\n", scheduled_str));
+                single_tasks_field.push_str(&format!("   {}\n", scheduled_str));
+
+                // INFORMACIÓN DE MENCIÓN - Mencionar al creador por defecto si no hay menciones
+                if let Some(mention) = &task.mention {
+                    if !mention.trim().is_empty() {
+                        single_tasks_field.push_str(&format!("   **Mentions:** {}\n", mention));
+                    } else {
+                        // Si mention existe pero está vacío, mencionar al creador
+                        single_tasks_field
+                            .push_str(&format!("   **Mentions:** <@{}>\n", task.user_id));
+                    }
+                } else {
+                    // Si no hay mention configurada, mencionar al creador
+                    single_tasks_field.push_str(&format!("   **Mentions:** <@{}>\n", task.user_id));
+                }
+
+                // INFORMACIÓN DE CANAL SI EXISTE
+                if let Some(channel_id) = task.channel_id {
+                    single_tasks_field.push_str(&format!("   **Channel:** <#{}>\n", channel_id));
+                }
+
+                single_tasks_field.push_str("\n");
             }
 
             embed = embed.field(
@@ -468,7 +489,27 @@ impl TaskService {
                     }
                 }
 
-                recurrent_tasks_field.push_str(&format!("   > {}\n\n", recurrence_str));
+                recurrent_tasks_field.push_str(&format!("   > {}\n", recurrence_str));
+
+                if let Some(mention) = &task.mention {
+                    if !mention.trim().is_empty() {
+                        recurrent_tasks_field.push_str(&format!("   **Mentions:** {}\n", mention));
+                    } else {
+                        // Si mention existe pero está vacío, mencionar al creador
+                        recurrent_tasks_field
+                            .push_str(&format!("   **Mentions:** <@{}>\n", task.user_id));
+                    }
+                } else {
+                    // Si no hay mention configurada, mencionar al creador
+                    recurrent_tasks_field
+                        .push_str(&format!("   **Mentions:** <@{}>\n", task.user_id));
+                }
+
+                if let Some(channel_id) = task.channel_id {
+                    recurrent_tasks_field.push_str(&format!("   **Channel:** <#{}>\n", channel_id));
+                }
+
+                recurrent_tasks_field.push_str("\n");
             }
 
             embed = embed.field("\n", "", false).field(

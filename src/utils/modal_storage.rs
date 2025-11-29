@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 /// Metadata stored temporarily for add_task modal processing
+/// Allows multiple mentions in a single modal submission
 #[derive(Clone, Debug)]
 pub struct TaskModalMetadata {
     pub task_type: String,

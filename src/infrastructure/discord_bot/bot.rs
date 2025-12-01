@@ -17,8 +17,9 @@ use crate::infrastructure::repositories::{
 use crate::infrastructure::scheduler::priority_queue_scheduler::PriorityQueueScheduler;
 use crate::infrastructure::timezone::timezone_manager::TimezoneManager;
 use crate::utils::ModalStorage;
-use serenity::all::{GuildId, Interaction, Ready};
+use serenity::all::{GuildId, Interaction, Message, Ready};
 use serenity::prelude::*;
+use songbird::SerenityInit;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 
@@ -184,6 +185,19 @@ impl EventHandler for CommandHandler {
             }
         }
     }
+
+    /// Handle message events for server-specific features
+    async fn message(&self, ctx: Context, message: Message) {
+        // Ignore messages from bots
+        if message.author.bot {
+            return;
+        }
+
+        // Handle server-specific message interactions
+        self.server_interaction_handler
+            .handle_message_interaction(&ctx, &message)
+            .await;
+    }
 }
 
 /// Composition root: builds all repos, services, and bot handler
@@ -193,7 +207,8 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     let intents = GatewayIntents::GUILDS
         | GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::GUILD_MEMBERS
-        | GatewayIntents::GUILD_MESSAGE_REACTIONS;
+        | GatewayIntents::GUILD_MESSAGE_REACTIONS
+        | GatewayIntents::GUILD_VOICE_STATES;
 
     let db_path = "./data/bot.db";
 
@@ -224,7 +239,6 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
 
     let task_service = Arc::new(TaskService::new(
         task_repo.clone(),
-        // REMOVED: config_repo dependency
         notification_service.clone(),
         timezone_service.clone(),
     ));
@@ -235,15 +249,21 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
         timezone_service.clone(),
     ));
 
+    let songbird = songbird::Songbird::serenity();
+
     // Initialize server-specific features
-    let (nickname_changer_service, kick_service) = initialize_specific_services(&token).await;
+    let (nickname_changer_service, kick_service, voice_interaction_service) =
+        initialize_specific_services(&token, songbird.clone()).await;
 
     let server_features_orchestrator = Arc::new(ServerFeaturesOrchestrator::new(
         nickname_changer_service.clone(),
         kick_service.clone(),
     ));
 
-    let server_interaction_handler = Arc::new(ServerInteractionHandler::new(kick_service));
+    let server_interaction_handler = Arc::new(ServerInteractionHandler::new(
+        kick_service,
+        voice_interaction_service,
+    ));
 
     // Create modal storage with 5-minute TTL (plenty of time for users to fill modals)
     let modal_storage = Arc::new(ModalStorage::new(std::time::Duration::from_secs(300)));
@@ -271,6 +291,7 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut client = Client::builder(&token, intents)
         .event_handler(handler)
+        .register_songbird_with(songbird.clone()) // ← Usar register_songbird_with
         .await?;
 
     client.start().await?;

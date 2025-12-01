@@ -31,8 +31,8 @@ impl Default for ServerConfig {
 impl ServerConfig {
     pub fn my_server() -> Self {
         Self {
-            server_id: 479788664876957737,
-            general_channel_id: 491109094237929472,
+            server_id: 1422605167580155914,
+            general_channel_id: 1422605168662413456,
             enabled_features: vec![
                 Feature::NicknameChanger,
                 Feature::MentionResponse,

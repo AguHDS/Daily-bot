@@ -57,14 +57,17 @@ impl ServerInteractionHandler {
 
         // Check permissions for voice interaction commands
         if let Some(voice_service) = &self.voice_interaction_service {
-            if !voice_service.has_permission(author_id) {
+            // Verificar si es comando "desmuteame" - permitirlo sin verificación de permisos
+            let is_desmuteame_self = self.is_desmuteame_self_command(&content);
+
+            if !is_desmuteame_self && !voice_service.has_permission(author_id) {
                 let _ = message.channel_id.say(&ctx.http, "No quiero").await;
                 return;
             }
 
             // Parse voice interaction commands
             if let Some((action, target_user)) =
-                self.parse_voice_command(&content, &message.mentions)
+                self.parse_voice_command(&content, &message.mentions, author_id)
             {
                 if let Some(target_id) = target_user {
                     // Obtain the voice channel of the target user
@@ -91,6 +94,14 @@ impl ServerInteractionHandler {
                                 {
                                     Ok(_) => {
                                         debug!("Voice action completed successfully");
+
+                                        // Añadir temporizador para que el bot se salga después de 3 segundos
+                                        // Solo si la acción fue Unmute y el target es el autor
+                                        if let crate::features::server_specific::services::voice_interaction_service::VoiceAction::Unmute = action {
+                                            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                                            // Opcional: código para que el bot salga del canal
+                                            // dependiendo de cómo esté implementado el VoiceInteractionService
+                                        }
                                     }
                                     Err(e) => {
                                         error!(
@@ -115,7 +126,7 @@ impl ServerInteractionHandler {
                 } else {
                     let _ = message
                         .channel_id
-                        .say(&ctx.http, "Menciona a alguien primero")
+                        .say(&ctx.http, "El deivid? un homosexual.")
                         .await;
                 }
                 return;
@@ -166,7 +177,7 @@ impl ServerInteractionHandler {
         }
 
         // If no command matched, send default response
-        let _ = message.channel_id.say(&ctx.http, "Eh?").await;
+        let _ = message.channel_id.say(&ctx.http, "Que homosexual").await;
     }
 
     async fn get_user_voice_channel_from_ctx(
@@ -190,11 +201,22 @@ impl ServerInteractionHandler {
         &self,
         content: &str,
         mentions: &[serenity::all::User],
+        author_id: u64,
     ) -> Option<(
         crate::features::server_specific::services::voice_interaction_service::VoiceAction,
         Option<u64>,
     )> {
         let content = content.trim();
+
+        // Verificar si es el comando "desmuteame" sin mención específica
+        if self.is_desmuteame_self_command(content) {
+            // Cuando el usuario dice "desmuteame" sin mencionar a nadie más,
+            // el objetivo es el propio autor del mensaje
+            return Some((
+                crate::features::server_specific::services::voice_interaction_service::VoiceAction::Unmute,
+                Some(author_id),
+            ));
+        }
 
         // Get the target user from mentions (skip the first mention which is the bot)
         let target_user = mentions.get(1).map(|user| user.id.get());
@@ -202,27 +224,51 @@ impl ServerInteractionHandler {
         // Mute commands
         if self.is_mute_command(content) {
             return Some((
-                crate::features::server_specific::services::voice_interaction_service::VoiceAction::Mute,
-                target_user,
-            ));
+            crate::features::server_specific::services::voice_interaction_service::VoiceAction::Mute,
+            target_user,
+        ));
+        }
+
+        // Unmute commands (cuando se menciona a otro usuario)
+        if self.is_unmute_command(content) {
+            return Some((
+            crate::features::server_specific::services::voice_interaction_service::VoiceAction::Unmute,
+            target_user,
+        ));
         }
 
         // Disconnect commands
         if self.is_disconnect_command(content) {
             return Some((
-                crate::features::server_specific::services::voice_interaction_service::VoiceAction::Disconnect,
-                target_user,
-            ));
+            crate::features::server_specific::services::voice_interaction_service::VoiceAction::Disconnect,
+            target_user,
+        ));
         }
 
         None
     }
 
-    /// Check if the content contains any mute-related command
+    /// Check if the content contains the specific "desmuteame" command for self-unmute
+    fn is_desmuteame_self_command(&self, content: &str) -> bool {
+        let desmuteame_patterns = [
+            "desmuteame",
+            "desmutéame",
+            "des-muteame",
+            "des muteame",
+            "desmutearme",
+            "desmutea me",
+        ];
+
+        desmuteame_patterns
+            .iter()
+            .any(|&pattern| content.contains(pattern))
+    }
+
     fn is_mute_command(&self, content: &str) -> bool {
         let mute_keywords = [
             "mutea",
             "muteame",
+            "muteate",
             "mutealo",
             "mutear",
             "muteamelo",
@@ -238,7 +284,36 @@ impl ServerInteractionHandler {
             "callame",
         ];
 
-        mute_keywords
+        let has_mute_keyword = mute_keywords
+            .iter()
+            .any(|&keyword| content.contains(keyword));
+
+        let has_unmute_prefix = content.contains("desmute")
+            || content.contains("desilencia")
+            || content.contains("descalla");
+
+        has_mute_keyword && !has_unmute_prefix
+    }
+
+    /// Check if the content contains any unmute-related command
+    fn is_unmute_command(&self, content: &str) -> bool {
+        let unmute_keywords = [
+            "desmutea",
+            "desmuteate",
+            "desmuteame",
+            "desmutealo",
+            "desmutear",
+            "desilencia",
+            "desilenciar",
+            "desilenciame",
+            "desilencialo",
+            "descalla",
+            "descallar",
+            "descallame",
+            "descallalo",
+        ];
+
+        unmute_keywords
             .iter()
             .any(|&keyword| content.contains(keyword))
     }

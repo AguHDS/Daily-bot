@@ -63,7 +63,9 @@ impl SqliteTaskRepository {
 
         // datetime
         let ts: Option<i64> = row.get("scheduled_time").map_err(|e| e.to_string())?;
-        let scheduled_time = ts.map(|t| Utc.timestamp_opt(t, 0).unwrap());
+        let scheduled_time = ts.and_then(|t| {
+            Utc.timestamp_opt(t, 0).single()
+        });
 
         // recurrence
         let recurrence_type: Option<String> =
@@ -128,7 +130,8 @@ impl TaskRepository for SqliteTaskRepository {
         tokio::task::spawn_blocking(move || -> Result<u64, String> {
             // compute next id using MAX(id) (note: we'll address autoincrement in step 2)
             let id_opt: Option<i64> = {
-                let conn_lock = conn.lock().unwrap();
+                let conn_lock = conn.lock()
+                    .map_err(|e| format!("Lock poisoned: {}", e))?;
                 conn_lock
                     .query_row("SELECT MAX(id) FROM tasks", [], |row| row.get(0))
                     .map_err(|e| e.to_string())?
@@ -170,7 +173,8 @@ impl TaskRepository for SqliteTaskRepository {
                 NotificationMethod::Both => "both",
             };
 
-            let conn_lock = conn.lock().unwrap();
+            let conn_lock = conn.lock()
+                .map_err(|e| format!("Lock poisoned: {}", e))?;
             conn_lock
                 .execute(
                     "INSERT INTO tasks (
@@ -214,7 +218,8 @@ impl TaskRepository for SqliteTaskRepository {
 
         tokio::task::spawn_blocking(move || -> Result<Task, String> {
             // obtain task
-            let conn_lock = conn.lock().unwrap();
+            let conn_lock = conn.lock()
+                .map_err(|e| format!("Lock poisoned: {}", e))?;
 
             let mut stmt = conn_lock
                 .prepare("SELECT * FROM tasks WHERE id = ?1")
@@ -328,7 +333,10 @@ impl TaskRepository for SqliteTaskRepository {
         let conn = self.conn.clone();
 
         tokio::task::spawn_blocking(move || -> bool {
-            let conn_lock = conn.lock().unwrap();
+            let conn_lock = match conn.lock() {
+                Ok(lock) => lock,
+                Err(_) => return false,
+            };
             conn_lock
                 .execute("DELETE FROM tasks WHERE id = ?1", params![task_id as i64])
                 .unwrap_or(0)
@@ -342,7 +350,10 @@ impl TaskRepository for SqliteTaskRepository {
         let conn = self.conn.clone();
 
         tokio::task::spawn_blocking(move || -> usize {
-            let conn_lock = conn.lock().unwrap();
+            let conn_lock = match conn.lock() {
+                Ok(lock) => lock,
+                Err(_) => return 0,
+            };
             conn_lock
                 .execute(
                     "DELETE FROM tasks WHERE user_id = ?1",
@@ -358,7 +369,10 @@ impl TaskRepository for SqliteTaskRepository {
         let conn = self.conn.clone();
 
         tokio::task::spawn_blocking(move || -> Vec<Task> {
-            let conn_lock = conn.lock().unwrap();
+            let conn_lock = match conn.lock() {
+                Ok(lock) => lock,
+                Err(_) => return Vec::new(),
+            };
 
             let mut stmt = match conn_lock.prepare("SELECT * FROM tasks") {
                 Ok(s) => s,

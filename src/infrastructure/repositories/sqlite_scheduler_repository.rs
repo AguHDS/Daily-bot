@@ -136,7 +136,8 @@ impl TaskSchedulerRepository for SqliteSchedulerRepository {
 
         let task_clone = task.clone();
         tokio::task::spawn_blocking(move || {
-            let mut conn_lock = conn.lock().unwrap();
+            let mut conn_lock = conn.lock()
+                .map_err(|e| SchedulerError::StorageError(format!("Lock poisoned: {}", e)))?;
             let tx = conn_lock
                 .transaction()
                 .map_err(|e| SchedulerError::StorageError(e.to_string()))?;
@@ -188,7 +189,8 @@ impl TaskSchedulerRepository for SqliteSchedulerRepository {
     async fn peek_next_task(&self) -> Result<Option<ScheduledTask>, SchedulerError> {
         let conn = self.conn.clone();
         tokio::task::spawn_blocking(move || {
-            let conn_lock = conn.lock().unwrap();
+            let conn_lock = conn.lock()
+                .map_err(|e| SchedulerError::StorageError(format!("Lock poisoned: {}", e)))?;
             let mut stmt = conn_lock.prepare(
                 "SELECT task_id, scheduled_time, user_id, guild_id, title, notification_method, is_recurring, is_deleted, mention
                  FROM scheduled_tasks WHERE is_deleted = 0 ORDER BY scheduled_time ASC LIMIT 1",
@@ -208,7 +210,8 @@ impl TaskSchedulerRepository for SqliteSchedulerRepository {
     async fn pop_next_task(&self) -> Result<Option<ScheduledTask>, SchedulerError> {
         let conn = self.conn.clone();
         tokio::task::spawn_blocking(move || {
-            let mut conn_lock = conn.lock().unwrap();
+            let mut conn_lock = conn.lock()
+                .map_err(|e| SchedulerError::StorageError(format!("Lock poisoned: {}", e)))?;
             let tx = conn_lock.transaction().map_err(|e| SchedulerError::StorageError(e.to_string()))?;
 
             // Select next non-deleted
@@ -249,7 +252,8 @@ impl TaskSchedulerRepository for SqliteSchedulerRepository {
     async fn remove_task(&self, task_id: u64) -> Result<(), SchedulerError> {
         let conn = self.conn.clone();
         tokio::task::spawn_blocking(move || {
-            let conn_lock = conn.lock().unwrap();
+            let conn_lock = conn.lock()
+                .map_err(|e| SchedulerError::StorageError(format!("Lock poisoned: {}", e)))?;
             let affected = conn_lock
                 .execute(
                     "UPDATE scheduled_tasks SET is_deleted = 1 WHERE task_id = ?1 AND is_deleted = 0",
@@ -271,7 +275,8 @@ impl TaskSchedulerRepository for SqliteSchedulerRepository {
     async fn has_pending_tasks(&self) -> Result<bool, SchedulerError> {
         let conn = self.conn.clone();
         tokio::task::spawn_blocking(move || {
-            let conn_lock = conn.lock().unwrap();
+            let conn_lock = conn.lock()
+                .map_err(|e| SchedulerError::StorageError(format!("Lock poisoned: {}", e)))?;
             let count: i64 = conn_lock
                 .query_row(
                     "SELECT COUNT(1) FROM scheduled_tasks WHERE is_deleted = 0",

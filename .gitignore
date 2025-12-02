@@ -9,4 +9,7 @@
 docs/memory.md
 docs/DEPLOY_GUIA.md
 src/infrastructure/database/sqlite_commands.txt
-data/*
+data/bot.db
+data/bot.db-shm
+data/bot.db-wal
+data/README.md

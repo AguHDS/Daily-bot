@@ -21,7 +21,7 @@ pub struct VoiceInteractionConfig {
 
 impl VoiceInteractionConfig {
     pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
-        let config_path = "src/features/server_specific/data/interaction_permission.json";
+        let config_path = "./data/server_specific/interaction_permission.json";
         let config_content = fs::read_to_string(config_path)?;
         let config: VoiceInteractionConfig = serde_json::from_str(&config_content)?;
         Ok(config)

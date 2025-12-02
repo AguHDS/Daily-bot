@@ -36,14 +36,14 @@ pub struct KickConfig {
 
 impl KickConfig {
     pub fn load() -> Result<Self, Box<dyn std::error::Error>> {
-        let targets_path = "src/features/server_specific/data/kick_targets.json";
+        let targets_path = "./data/server_specific/kick_targets.json";
         let content = fs::read_to_string(targets_path)?;
         let config: KickConfig = serde_json::from_str(&content)?;
         Ok(config)
     }
 
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let targets_path = "src/features/server_specific/data/kick_targets.json";
+        let targets_path = "./data/server_specific/kick_targets.json";
         let content = serde_json::to_string_pretty(self)?;
         fs::write(targets_path, content)?;
         Ok(())

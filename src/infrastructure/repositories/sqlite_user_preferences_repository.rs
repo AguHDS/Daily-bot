@@ -30,7 +30,8 @@ impl SqliteUserPreferencesRepository {
     }
 
     fn initialize_schema(&self) -> Result<(), RepositoryError> {
-        let conn = self.connection.lock().unwrap();
+        let conn = self.connection.lock()
+            .map_err(|e| RepositoryError::StorageError(format!("Lock poisoned: {}", e)))?;
 
         // Add date_format column with ALTER TABLE to maintain backward compatibility
         conn.execute(
@@ -63,7 +64,8 @@ impl UserPreferencesRepository for SqliteUserPreferencesRepository {
         let conn = self.connection.clone();
 
         let result = tokio::task::spawn_blocking(move || {
-            let conn = conn.lock().unwrap();
+            let conn = conn.lock()
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Lock poisoned: {}", e)))))?;
 
             let mut stmt = conn.prepare(
                 "SELECT user_id, timezone, date_format, created_at, updated_at
@@ -81,8 +83,12 @@ impl UserPreferencesRepository for SqliteUserPreferencesRepository {
                     user_id: user_id_val,
                     timezone: timezone_val,
                     date_format: date_format_val,
-                    created_at: chrono::Utc.timestamp_opt(created_at_val, 0).unwrap(),
-                    updated_at: chrono::Utc.timestamp_opt(updated_at_val, 0).unwrap(),
+                    created_at: chrono::Utc.timestamp_opt(created_at_val, 0)
+                        .single()
+                        .ok_or_else(|| rusqlite::Error::InvalidQuery)?,
+                    updated_at: chrono::Utc.timestamp_opt(updated_at_val, 0)
+                        .single()
+                        .ok_or_else(|| rusqlite::Error::InvalidQuery)?,
                 })
             });
 
@@ -109,7 +115,8 @@ impl UserPreferencesRepository for SqliteUserPreferencesRepository {
         let prefs = preferences.clone();
 
         let result = tokio::task::spawn_blocking(move || {
-            let conn = conn.lock().unwrap();
+            let conn = conn.lock()
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Lock poisoned: {}", e)))))?;
 
             conn.execute(
                 r#"
@@ -141,7 +148,8 @@ impl UserPreferencesRepository for SqliteUserPreferencesRepository {
         let conn = self.connection.clone();
 
         let result = tokio::task::spawn_blocking(move || {
-            let conn = conn.lock().unwrap();
+            let conn = conn.lock()
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::Other, format!("Lock poisoned: {}", e)))))?;
 
             let affected = conn.execute(
                 "DELETE FROM user_preferences WHERE user_id = ?1",

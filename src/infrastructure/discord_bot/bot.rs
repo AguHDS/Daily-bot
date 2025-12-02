@@ -17,7 +17,7 @@ use crate::infrastructure::repositories::{
 use crate::infrastructure::scheduler::priority_queue_scheduler::PriorityQueueScheduler;
 use crate::infrastructure::timezone::timezone_manager::TimezoneManager;
 use crate::utils::ModalStorage;
-use serenity::all::{GuildId, Interaction, Message, Ready};
+use serenity::all::{GuildId, Interaction, Message, Ready, ResumedEvent};
 use serenity::prelude::*;
 use songbird::SerenityInit;
 use std::sync::Arc;
@@ -91,6 +91,10 @@ impl EventHandler for CommandHandler {
         );
 
         info!("Scheduler started successfully");
+    }
+
+    async fn resume(&self, _ctx: Context, _resume: ResumedEvent) {
+        info!("Bot reconnected to Discord gateway");
     }
 
     async fn guild_create(

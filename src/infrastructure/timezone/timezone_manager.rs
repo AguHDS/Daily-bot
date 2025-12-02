@@ -26,7 +26,7 @@ pub struct TimezoneManager {
 
 impl TimezoneManager {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let data_path = "src/infrastructure/data/timezones.json";
+        let data_path = "./data/timezones.json";
         let file_content = fs::read_to_string(data_path)?;
 
         let timezones_list: Vec<TimezoneInfo> = serde_json::from_str(&file_content)?;

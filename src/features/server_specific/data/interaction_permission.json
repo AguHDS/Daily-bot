@@ -2,27 +2,33 @@
   "targets": [
     {
       "user_id": 300869447475003393,
-      "display_name": "ponyrosa"
+      "display_name": "ponyrosa",
+      "kick_request_permission": true
     },
     {
       "user_id": 293476475280162816,
-      "display_name": "kellhtowar"
+      "display_name": "kellhtowar",
+      "kick_request_permission": true
     },
     {
       "user_id": 292910315576885248,
-      "display_name": "hyperzyro"
+      "display_name": "hyperzyro",
+      "kick_request_permission": true
     },
     {
       "user_id": 302734824173600769,
-      "display_name": "giobirb"
+      "display_name": "giobirb",
+      "kick_request_permission": true
     },
     {
       "user_id": 172469370532921344,
-      "display_name": "bloodgod"
+      "display_name": "bloodgod",
+      "kick_request_permission": false
     },
     {
       "user_id": 616511805732290561,
-      "display_name": "sir.midget"
+      "display_name": "sir.midget",
+      "kick_request_permission": false
     }
   ]
 }

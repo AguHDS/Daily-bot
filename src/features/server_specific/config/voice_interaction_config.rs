@@ -5,6 +5,13 @@ use std::fs;
 pub struct PermissionTarget {
     pub user_id: u64,
     pub display_name: String,
+    #[serde(default = "default_kick_permission")] // Default to false if not specified
+    pub kick_request_permission: bool,
+}
+
+// Default function for serde
+fn default_kick_permission() -> bool {
+    false
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +29,14 @@ impl VoiceInteractionConfig {
 
     pub fn is_user_allowed(&self, user_id: u64) -> bool {
         self.targets.iter().any(|target| target.user_id == user_id)
+    }
+
+    pub fn can_user_kick(&self, user_id: u64) -> bool {
+        self.targets
+            .iter()
+            .find(|target| target.user_id == user_id)
+            .map(|target| target.kick_request_permission)
+            .unwrap_or(false)
     }
 
     pub fn find_target(&self, user_id: u64) -> Option<&PermissionTarget> {

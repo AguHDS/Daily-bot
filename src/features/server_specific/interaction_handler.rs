@@ -58,7 +58,7 @@ impl ServerInteractionHandler {
         // Check permissions for voice interaction commands
         if let Some(voice_service) = &self.voice_interaction_service {
             if !voice_service.has_permission(author_id) {
-                    let _ = message.channel_id.say(&ctx.http, "No quiero").await;
+                let _ = message.channel_id.say(&ctx.http, "No quiero").await;
                 return;
             }
 
@@ -126,6 +126,14 @@ impl ServerInteractionHandler {
         if let Some(kick_service) = &self.kick_service {
             if self.is_kick_command(&content) {
                 if let Some(target_user) = message.mentions.get(1) {
+                    // NUEVO: Verificar permiso de kick
+                    if let Some(voice_service) = &self.voice_interaction_service {
+                        if !voice_service.can_kick(author_id) {
+                            let _ = message.channel_id.say(&ctx.http, "No quiero").await;
+                            return;
+                        }
+                    }
+
                     let target_id = target_user.id.get();
 
                     let _ = message.channel_id.say(&ctx.http, "bueno").await;

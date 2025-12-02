@@ -40,23 +40,23 @@ impl VoiceInteractionService {
     ) -> Result<(), String> {
         let target_user_id = UserId::new(target_user_id);
 
-        // Join the user's voice channel
+        // join voice channel
         self.join_voice_channel(guild_id, voice_channel_id).await?;
 
-        // Execute the action
+        // execute the action
         match action {
             VoiceAction::Mute => self.mute_user(guild_id, target_user_id).await,
+            VoiceAction::Unmute => self.unmute_user(guild_id, target_user_id).await, // ← NUEVO
             VoiceAction::Disconnect => self.disconnect_user(guild_id, target_user_id).await,
             VoiceAction::Kick => return Err("Kick action not supported in voice".to_string()),
         }?;
 
-        // wait a moment before leaving
+        // wait 3 seconds and leave
         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
         self.leave_voice_channel(guild_id).await?;
 
         Ok(())
     }
-
     async fn join_voice_channel(
         &self,
         guild_id: GuildId,
@@ -96,6 +96,20 @@ impl VoiceInteractionService {
         Ok(())
     }
 
+    async fn unmute_user(&self, guild_id: GuildId, user_id: UserId) -> Result<(), String> {
+        self.http
+            .edit_member(
+                guild_id,
+                user_id,
+                &serde_json::json!({ "mute": false }),
+                None,
+            )
+            .await
+            .map_err(|e| format!("Failed to unmute user: {}", e))?;
+        info!("Unmuted user {} in guild {}", user_id, guild_id);
+        Ok(())
+    }
+
     async fn disconnect_user(&self, guild_id: GuildId, user_id: UserId) -> Result<(), String> {
         self.http
             .edit_member(
@@ -117,6 +131,7 @@ impl VoiceInteractionService {
 #[derive(Debug, Clone, Copy)]
 pub enum VoiceAction {
     Mute,
+    Unmute,
     Disconnect,
     Kick,
 }

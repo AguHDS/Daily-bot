@@ -143,7 +143,7 @@ impl NicknameChangerService {
         let channel_id = ChannelId::new(self.server_config.general_channel_id);
 
         let message_content = format!(
-            "{}, que lindo nombre tienes... te lo puedo cambiar?\n*{} → {}*",
+            "{}, no me gusta tu nombre. Te lo puedo cambiar?\n*{} → {}*",
             old_nickname, old_nickname, new_nickname
         );
 

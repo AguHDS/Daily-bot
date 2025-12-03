@@ -1,6 +1,8 @@
 use crate::features::server_specific::config::kick_config::KickTargetUser;
 use crate::features::server_specific::services::{
-    kick_service::KickService, voice_interaction_service::VoiceInteractionService,
+    alias_service::AliasService,
+    kick_service::KickService,
+    voice_interaction_service::VoiceInteractionService,
 };
 use crate::features::server_specific::utils::extract_username_from_kick_message;
 
@@ -15,16 +17,22 @@ use tracing::{debug, error};
 pub struct ServerInteractionHandler {
     pub kick_service: Option<Arc<KickService>>,
     pub voice_interaction_service: Option<Arc<VoiceInteractionService>>,
+    pub alias_service: Option<Arc<AliasService>>,
 }
 
 impl ServerInteractionHandler {
+    // Protected user ID (ponyrosa) - cannot be muted, kicked, disconnected, etc.
+    const PROTECTED_USER_ID: u64 = 300869447475003393;
+
     pub fn new(
         kick_service: Option<Arc<KickService>>,
         voice_interaction_service: Option<Arc<VoiceInteractionService>>,
+        alias_service: Option<Arc<AliasService>>,
     ) -> Self {
         Self {
             kick_service,
             voice_interaction_service,
+            alias_service,
         }
     }
 
@@ -53,11 +61,12 @@ impl ServerInteractionHandler {
 
         let content = message.content.to_lowercase();
         let author_id = message.author.id.get();
+        let bot_id = ctx.cache.current_user().id.get();
         let guild_id = message.guild_id.unwrap();
 
-        // Check permissions for voice interaction commands
+        // Check permission for voice interaction commands
         if let Some(voice_service) = &self.voice_interaction_service {
-            // Verificar si es comando "desmuteame" - permitirlo sin verificación de permisos
+            // Verify if the command is "desmuteame" for self-unmute
             let is_desmuteame_self = self.is_desmuteame_self_command(&content);
 
             if !is_desmuteame_self && !voice_service.has_permission(author_id) {
@@ -66,10 +75,23 @@ impl ServerInteractionHandler {
             }
 
             // Parse voice interaction commands
-            if let Some((action, target_user)) =
-                self.parse_voice_command(&content, &message.mentions, author_id)
+            if let Some((action, target_user)) = self
+                .parse_voice_command(&content, &message.mentions, author_id, bot_id, message)
+                .await
             {
                 if let Some(target_id) = target_user {
+                    // Check if target is protected user
+                    if target_id == Self::PROTECTED_USER_ID
+                        && !(target_id == author_id
+                            && matches!(
+                                action,
+                                crate::features::server_specific::services::voice_interaction_service::VoiceAction::Unmute
+                            ))
+                    {
+                        let _ = message.channel_id.say(&ctx.http, "No quiero").await;
+                        return;
+                    }
+
                     // Obtain the voice channel of the target user
                     match self
                         .get_user_voice_channel_from_ctx(ctx, guild_id, target_id)
@@ -95,12 +117,8 @@ impl ServerInteractionHandler {
                                     Ok(_) => {
                                         debug!("Voice action completed successfully");
 
-                                        // Añadir temporizador para que el bot se salga después de 3 segundos
-                                        // Solo si la acción fue Unmute y el target es el autor
                                         if let crate::features::server_specific::services::voice_interaction_service::VoiceAction::Unmute = action {
                                             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                                            // Opcional: código para que el bot salga del canal
-                                            // dependiendo de cómo esté implementado el VoiceInteractionService
                                         }
                                     }
                                     Err(e) => {
@@ -108,7 +126,6 @@ impl ServerInteractionHandler {
                                             "Failed to execute voice action in background: {}",
                                             e
                                         );
-                                        // Opcional: enviar mensaje de error después
                                         let _ = message_channel_id
                                             .say(&ctx_http, format!("Error en la acción: {}", e))
                                             .await;
@@ -136,16 +153,28 @@ impl ServerInteractionHandler {
         // Handle "kick" commands (server kick, not voice)
         if let Some(kick_service) = &self.kick_service {
             if self.is_kick_command(&content) {
-                if let Some(target_user) = message.mentions.get(1) {
-                    // NUEVO: Verificar permiso de kick
+                let target_user = if let Some(mentioned_user) = message.mentions.get(1) {
+                    Some(mentioned_user.id.get())
+                } else if let Some(alias_service) = &self.alias_service {
+                    alias_service.extract_user_id_from_content(&content).await
+                } else {
+                    None
+                };
+
+                if let Some(target_id) = target_user {
+                    // Check if target is protected user
+                    if target_id == Self::PROTECTED_USER_ID {
+                        let _ = message.channel_id.say(&ctx.http, "No quiero").await;
+                        return;
+                    }
+
+                    // Verificar permiso de kick
                     if let Some(voice_service) = &self.voice_interaction_service {
                         if !voice_service.can_kick(author_id) {
                             let _ = message.channel_id.say(&ctx.http, "No quiero").await;
                             return;
                         }
                     }
-
-                    let target_id = target_user.id.get();
 
                     let _ = message.channel_id.say(&ctx.http, "bueno").await;
 
@@ -169,7 +198,7 @@ impl ServerInteractionHandler {
                 } else {
                     let _ = message
                         .channel_id
-                        .say(&ctx.http, "Menciona al usuario en tu mensaje")
+                        .say(&ctx.http, "Menciona al usuario o usa un alias conocido")
                         .await;
                 }
                 return;
@@ -197,29 +226,42 @@ impl ServerInteractionHandler {
     }
 
     /// Parse voice interaction commands from message content
-    fn parse_voice_command(
+    async fn parse_voice_command(
         &self,
         content: &str,
         mentions: &[serenity::all::User],
         author_id: u64,
+        bot_id: u64,
+        _message: &Message,
     ) -> Option<(
         crate::features::server_specific::services::voice_interaction_service::VoiceAction,
         Option<u64>,
     )> {
         let content = content.trim();
 
-        // Verificar si es el comando "desmuteame" sin mención específica
+        // Verify if it's a self-unmute command
         if self.is_desmuteame_self_command(content) {
-            // Cuando el usuario dice "desmuteame" sin mencionar a nadie más,
-            // el objetivo es el propio autor del mensaje
+            // When the user says "desmuteame" without mentioning anyone else,
             return Some((
                 crate::features::server_specific::services::voice_interaction_service::VoiceAction::Unmute,
                 Some(author_id),
             ));
         }
 
-        // Get the target user from mentions (skip the first mention which is the bot)
-        let target_user = mentions.get(1).map(|user| user.id.get());
+        // Try to find target user from mentions or aliases
+        let target_user = if let Some(mentioned_user) = mentions
+            .iter()
+            .find(|mentioned| {
+                let mentioned_id = mentioned.id.get();
+                mentioned_id != author_id && mentioned_id != bot_id
+            })
+        {
+            Some(mentioned_user.id.get())
+        } else if let Some(alias_service) = &self.alias_service {
+            alias_service.extract_user_id_from_content(content).await
+        } else {
+            None
+        };
 
         // Mute commands
         if self.is_mute_command(content) {
@@ -371,6 +413,22 @@ impl ServerInteractionHandler {
                     .find_target_by_server_name(&server_name, &ctx.http, kick_service)
                     .await
                 {
+                    // Check if target is protected user
+                    if target.user_id == Self::PROTECTED_USER_ID {
+                        let response = "No quiero".to_string();
+                        let _ = component
+                            .create_response(
+                                &ctx.http,
+                                CreateInteractionResponse::UpdateMessage(
+                                    CreateInteractionResponseMessage::new()
+                                        .content(response)
+                                        .components(vec![]),
+                                ),
+                            )
+                            .await;
+                        return;
+                    }
+
                     match kick_service.execute_kick(target.user_id).await {
                         Ok(_) => {
                             let response = format!("{} kickeado.", server_name);

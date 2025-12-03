@@ -38,7 +38,7 @@ impl CommandHandler {
     /// Register slash commands for a specific servers
     async fn register_commands_for_guild(&self, ctx: &Context, guild_id: GuildId) {
         // Test server ID
-        const SERVER_FOR_STATS_COMMAND: u64 = 1422605167580155914;
+        const SERVER_FOR_STATS_COMMAND: u64 = 479788664876957737;
 
         // Commands available for ALL servers
         let mut commands = vec![
@@ -259,6 +259,24 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     let (nickname_changer_service, kick_service, voice_interaction_service) =
         initialize_specific_services(&token, songbird.clone()).await;
 
+    // Initialize alias service
+    let alias_service =
+        match crate::features::server_specific::services::alias_service::AliasService::new(
+            "./data/server_specific/targets_alias.json",
+        ) {
+            Ok(service) => {
+                info!("Alias service initialized successfully");
+                Some(Arc::new(service))
+            }
+            Err(e) => {
+                error!(
+                    "Failed to initialize alias service: {}. Alias functionality will be disabled.",
+                    e
+                );
+                None
+            }
+        };
+
     let server_features_orchestrator = Arc::new(ServerFeaturesOrchestrator::new(
         nickname_changer_service.clone(),
         kick_service.clone(),
@@ -267,6 +285,7 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     let server_interaction_handler = Arc::new(ServerInteractionHandler::new(
         kick_service,
         voice_interaction_service,
+        alias_service, // ← TERCER PARÁMETRO AÑADIDO
     ));
 
     // Create modal storage with 5-minute TTL (plenty of time for users to fill modals)

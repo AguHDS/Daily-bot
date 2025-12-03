@@ -1,0 +1,79 @@
+{
+  "users": [
+    {
+      "user_id": 300869447475003393,
+      "discord_username": "ponyrosa",
+      "alias": ["pony", "ponyrosa", "rosa"]
+    },
+    {
+      "user_id": 601927840518111262,
+      "discord_username": "sugarbytes_",
+      "alias": ["chino", "sugarbytes"]
+    },
+    {
+      "user_id": 348513689974079509,
+      "discord_username": "dalex512",
+      "alias": ["dalex"]
+    },
+    {
+      "user_id": 645478274214002708,
+      "discord_username": "k3nz0dx",
+      "alias": ["nelson"]
+    },
+    {
+      "user_id": 172469370532921344,
+      "discord_username": "bloodgod",
+      "alias": ["guido", "bloodgod"]
+    },
+    {
+      "user_id": 304312002103476225,
+      "discord_username": "_deiwos",
+      "alias": ["deivid", "david", "deiwos"]
+    },
+    {
+      "user_id": 304087112830025728,
+      "discord_username": "sangeline",
+      "alias": ["sangeline", "franco", "peep"]
+    },
+    {
+      "user_id": 311198012640722945,
+      "discord_username": "litkirah",
+      "alias": ["ale", "alejandro", "kira"]
+    },
+    {
+      "user_id": 616511805732290561,
+      "discord_username": "sir.midget",
+      "alias": ["midget", "uruguayo"]
+    },
+    {
+      "user_id": 257288389689212929,
+      "discord_username": "naofullbuster",
+      "alias": ["nao", "elias", "tacho"]
+    },
+    {
+      "user_id": 302734824173600769,
+      "discord_username": "giobirb",
+      "alias": ["gio"]
+    },
+    {
+      "user_id": 292907076760371212,
+      "discord_username": "crayt.",
+      "alias": ["crayt", "roa"]
+    },
+    {
+      "user_id": 298274184495104004,
+      "discord_username": "conor_1",
+      "alias": ["conor", "juanma", "juanmanuel"]
+    },
+    {
+      "user_id": 292910315576885248,
+      "discord_username": "hyperzyro",
+      "alias": ["axel", "axelote", "hyperzyro"]
+    },
+    {
+      "user_id": 293476475280162816,
+      "discord_username": "kellhtowar",
+      "alias": ["kellthtowar", "jared"]
+    }
+  ]
+}

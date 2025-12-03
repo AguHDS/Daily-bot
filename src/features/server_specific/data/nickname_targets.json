@@ -1,5 +1,5 @@
 {
-  "enabled": false,
+  "enabled": true,
   "random_config": {
     "check_interval_minutes": 60,
     "change_probability": 0.0,

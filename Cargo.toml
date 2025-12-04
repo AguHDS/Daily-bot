@@ -28,4 +28,5 @@ anyhow = "1.0.100"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.20"
 rand = "0.8"
-songbird = "0.4"
+songbird = { version = "0.4", features = ["driver", "builtin-queue", "gateway"] }
+symphonia = { version = "0.5", features = ["aac", "mp3", "isomp4", "alac", "flac", "pcm", "vorbis", "wav"] }

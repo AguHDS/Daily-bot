@@ -70,7 +70,7 @@ impl ServerInteractionHandler {
             let is_desmuteame_self = self.is_desmuteame_self_command(&content);
 
             if !is_desmuteame_self && !voice_service.has_permission(author_id) {
-                let _ = message.channel_id.say(&ctx.http, "No quiero").await;
+                let _ = message.channel_id.say(&ctx.http, "Callate puta").await;
                 return;
             }
 
@@ -88,7 +88,7 @@ impl ServerInteractionHandler {
                                 crate::features::server_specific::services::voice_interaction_service::VoiceAction::Unmute
                             ))
                     {
-                        let _ = message.channel_id.say(&ctx.http, "No quiero").await;
+                        let _ = message.channel_id.say(&ctx.http, "Callate puta").await;
                         return;
                     }
 
@@ -136,14 +136,14 @@ impl ServerInteractionHandler {
                         None => {
                             let _ = message
                                 .channel_id
-                                .say(&ctx.http, "Pero no está en ningún canal")
+                                .say(&ctx.http, "Pero no está en ningún canal puta")
                                 .await;
                         }
                     }
                 } else {
                     let _ = message
                         .channel_id
-                        .say(&ctx.http, "El deivid? un homosexual.")
+                        .say(&ctx.http, "Callate puta")
                         .await;
                 }
                 return;
@@ -164,14 +164,14 @@ impl ServerInteractionHandler {
                 if let Some(target_id) = target_user {
                     // Check if target is protected user
                     if target_id == Self::PROTECTED_USER_ID {
-                        let _ = message.channel_id.say(&ctx.http, "No quiero").await;
+                        let _ = message.channel_id.say(&ctx.http, "Callate puta").await;
                         return;
                     }
 
                     // Verificar permiso de kick
                     if let Some(voice_service) = &self.voice_interaction_service {
                         if !voice_service.can_kick(author_id) {
-                            let _ = message.channel_id.say(&ctx.http, "No quiero").await;
+                            let _ = message.channel_id.say(&ctx.http, "Callate puta").await;
                             return;
                         }
                     }
@@ -415,7 +415,7 @@ impl ServerInteractionHandler {
                 {
                     // Check if target is protected user
                     if target.user_id == Self::PROTECTED_USER_ID {
-                        let response = "No quiero".to_string();
+                        let response = "Callate puta".to_string();
                         let _ = component
                             .create_response(
                                 &ctx.http,

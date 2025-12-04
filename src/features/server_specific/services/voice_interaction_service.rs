@@ -1,9 +1,12 @@
 use crate::features::server_specific::config::voice_interaction_config::VoiceInteractionConfig;
+use rand::Rng;
 use serenity::all::{ChannelId, GuildId, UserId};
 use serenity::http::Http;
-use songbird::Songbird;
+use songbird::{Songbird, input::File};
 use std::sync::Arc;
-use tracing::info;
+use std::{fs, path::Path};
+use tokio::time::{Duration, sleep};
+use tracing::{info, warn};
 
 pub struct VoiceInteractionService {
     config: VoiceInteractionConfig,
@@ -40,23 +43,191 @@ impl VoiceInteractionService {
     ) -> Result<(), String> {
         let target_user_id = UserId::new(target_user_id);
 
-        // join voice channel
+        // 1. Join the voice channel
         self.join_voice_channel(guild_id, voice_channel_id).await?;
 
-        // execute the action
-        match action {
-            VoiceAction::Mute => self.mute_user(guild_id, target_user_id).await,
-            VoiceAction::Unmute => self.unmute_user(guild_id, target_user_id).await, // ← NUEVO
-            VoiceAction::Disconnect => self.disconnect_user(guild_id, target_user_id).await,
+        // 2. Determine if we should play sound BEFORE the action
+        //    Only for Mute and Disconnect, never for Unmute
+        let should_play_sound = match action {
+            VoiceAction::Mute | VoiceAction::Disconnect => self.should_play_sound(),
+            VoiceAction::Unmute => false,
             VoiceAction::Kick => return Err("Kick action not supported in voice".to_string()),
-        }?;
+        };
 
-        // wait 3 seconds and leave
-        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        // 3. FIRST: Play sound (if applicable)
+        if should_play_sound {
+            info!("Playing sound before {:?} action", action);
+            match self.play_random_sound(guild_id).await {
+                Ok(_) => {
+                    info!("Sound played successfully before {:?}", action);
+                    // Small pause after sound for dramatic effect
+                    sleep(Duration::from_millis(500)).await;
+                }
+                Err(e) => {
+                    warn!("Failed to play sound before action: {}", e);
+                    // Continue even if sound fails
+                }
+            }
+        } else {
+            info!("No sound will be played for {:?} action", action);
+        }
+
+        // 4. THEN: Execute the action (mute/unmute/disconnect)
+        match action {
+            VoiceAction::Mute => {
+                info!("Muting user {}", target_user_id);
+                self.mute_user(guild_id, target_user_id).await?;
+            }
+            VoiceAction::Unmute => {
+                info!("Unmuting user {}", target_user_id);
+                self.unmute_user(guild_id, target_user_id).await?;
+            }
+            VoiceAction::Disconnect => {
+                info!("Disconnecting user {}", target_user_id);
+                self.disconnect_user(guild_id, target_user_id).await?;
+            }
+            VoiceAction::Kick => return Err("Kick action not supported in voice".to_string()),
+        }
+
+        // 5. Wait a few seconds before leaving
+        info!("Waiting 3 seconds before leaving voice channel");
+        sleep(Duration::from_secs(3)).await;
         self.leave_voice_channel(guild_id).await?;
 
         Ok(())
     }
+
+    /// Determine if we should play a sound (50% chance)
+    fn should_play_sound(&self) -> bool {
+        let mut rng = rand::thread_rng();
+        rng.gen_bool(0.4) // 40% chance
+    }
+
+    /// Play a random sound from the sounds directory
+    async fn play_random_sound(&self, guild_id: GuildId) -> Result<(), String> {
+        // Try multiple locations
+        let possible_paths = [
+            Path::new("data/sounds"),                              // Producción
+            Path::new("src/features/server_specific/data/sounds"), // Desarrollo
+            Path::new("./sounds"),                                 // Raíz alternativa
+        ];
+
+        let sounds_dir = possible_paths
+            .iter()
+            .find(|path| path.exists())
+            .ok_or_else(|| {
+                let paths_str = possible_paths
+                    .iter()
+                    .map(|p| format!("{:?}", p))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("No sounds directory found. Tried: {}", paths_str)
+            })?;
+
+        info!("Using sounds directory: {:?}", sounds_dir);
+
+        // Get all audio files from the directory
+        let audio_extensions = ["mp3", "wav", "ogg", "flac", "m4a"];
+        let mut sound_files = Vec::new();
+
+        match fs::read_dir(sounds_dir) {
+            Ok(entries) => {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Some(ext) = path.extension() {
+                            if let Some(ext_str) = ext.to_str() {
+                                if audio_extensions.contains(&ext_str.to_lowercase().as_str()) {
+                                    sound_files.push(path);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                return Err(format!(
+                    "Failed to read sounds directory {:?}: {}",
+                    sounds_dir, e
+                ));
+            }
+        }
+
+        // If no sound files found, return early
+        if sound_files.is_empty() {
+            return Err(format!(
+                "No sound files found in directory: {:?}",
+                sounds_dir
+            ));
+        }
+
+        // Select a random sound file - usar el random_index ANTES de await para evitar problemas de Send
+        let random_index = {
+            let mut rng = rand::thread_rng();
+            rng.gen_range(0..sound_files.len())
+        }; // rng se destruye aquí
+        
+        let sound_file_path = sound_files[random_index].clone();
+
+        info!("Playing random sound: {:?}", sound_file_path);
+
+        // Verificar que el archivo existe antes de intentar cargarlo
+        if !sound_file_path.exists() {
+            return Err(format!("Sound file does not exist: {:?}", sound_file_path));
+        }
+
+        // Get the current voice call
+        let handler = self
+            .songbird
+            .get(guild_id)
+            .ok_or("Not in a voice channel".to_string())?;
+
+        let mut handler_lock = handler.lock().await;
+
+        // Stop any current audio
+        handler_lock.stop();
+
+        // Convert the sound file path to a format Songbird can use
+        info!("Loading audio file: {:?}", sound_file_path);
+
+        // Creat the input file (uses symphonya)
+        let source = File::new(sound_file_path.clone());
+
+        let track_handle = handler_lock.play_input(source.into());
+
+        info!(
+            "Started playing sound: {:?}",
+            sound_file_path.file_name().unwrap_or_default()
+        );
+
+        // Wait for the audio to end (simplified version)
+        // We use a fixed time of 10 seconds maximum
+        let max_wait_time = Duration::from_secs(10);
+        let start_time = std::time::Instant::now();
+
+        while start_time.elapsed() < max_wait_time {
+            // Check the track status
+            if let Ok(info) = track_handle.get_info().await {
+                if info.playing == songbird::tracks::PlayMode::Stop {
+                    break;
+                }
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+
+
+        // If the track is still playing after the maximum time, stop it
+        if start_time.elapsed() >= max_wait_time {
+            info!("Stopping sound after maximum wait time");
+            track_handle
+                .stop()
+                .map_err(|e| format!("Failed to stop track: {}", e))?;
+        }
+
+        info!("Finished playing sound");
+        Ok(())
+    }
+
     async fn join_voice_channel(
         &self,
         guild_id: GuildId,

@@ -285,7 +285,7 @@ pub async fn run_bot() -> Result<(), Box<dyn std::error::Error>> {
     let server_interaction_handler = Arc::new(ServerInteractionHandler::new(
         kick_service,
         voice_interaction_service,
-        alias_service, // ← TERCER PARÁMETRO AÑADIDO
+        alias_service,
     ));
 
     // Create modal storage with 5-minute TTL (plenty of time for users to fill modals)

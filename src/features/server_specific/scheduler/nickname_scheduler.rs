@@ -36,26 +36,25 @@ impl NicknameScheduler {
     }
 
     /// Checks and changes nicknames based on random probability
+    /// Only changes nickname for one user per cycle at most
     async fn check_and_change_nicknames(&self) {
         let targets_to_change = self.service.get_targets_for_random_change();
 
-        if !targets_to_change.is_empty() {
-            debug!(
-                "Found {} targets for nickname change",
-                targets_to_change.len()
-            );
+        if targets_to_change.is_empty() {
+            return;
         }
 
-        for target in targets_to_change {
+        // Since get_targets_for_random_change() now returns at most one user,
+        // we can safely process the first (and only) target
+        if let Some(target) = targets_to_change.first() {
+            debug!("Found target for nickname change: {}", target.display_name);
+
             if let Err(e) = self.service.change_nickname_for_user(target.user_id).await {
                 warn!(
                     "Failed to change nickname for {}: {}",
                     target.display_name, e
                 );
             }
-
-            // Small delay between changes to avoid rate limits
-            sleep(Duration::from_secs(2)).await;
         }
     }
 }

@@ -1,5 +1,7 @@
 use crate::features::server_specific::config::ServerConfig;
 use crate::features::server_specific::config::nickname_config::{NicknameConfig, TargetUser};
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use serde_json::json;
 use serenity::builder::{CreateAllowedMentions, CreateMessage};
 use serenity::http::Http;
@@ -30,16 +32,38 @@ impl NicknameChangerService {
     }
 
     /// Gets targets that should change nickname based on random probability
+    /// Only one user will be returned at most per cycle, even if multiple users pass the probability check
     pub fn get_targets_for_random_change(&self) -> Vec<&TargetUser> {
         if !self.nickname_config.is_enabled() {
             return Vec::new();
         }
 
-        self.nickname_config
+        // Filter users who can have their nickname changed (not in cooldown)
+        let mut eligible_targets: Vec<&TargetUser> = self
+            .nickname_config
             .targets
             .iter()
-            .filter(|target| target.should_change_nickname(&self.nickname_config.random_config))
-            .collect()
+            .filter(|target| target.can_change_nickname(&self.nickname_config.random_config))
+            .collect();
+
+        if eligible_targets.is_empty() {
+            return Vec::new();
+        }
+
+        // Randomize the order so everyone has an equal chance of being selected first
+        let mut rng = thread_rng();
+        eligible_targets.shuffle(&mut rng);
+
+        // Evaluate each user in random order until one meets the probability
+        for target in eligible_targets {
+            if target.should_change_nickname(&self.nickname_config.random_config) {
+                // Only return ONE user at most
+                return vec![target];
+            }
+        }
+
+        // If no user met the probability, return empty
+        Vec::new()
     }
 
     pub async fn change_nickname_for_user(&self, user_id: u64) -> Result<String, String> {
@@ -87,7 +111,6 @@ impl NicknameChangerService {
 
     /// Selects a random nickname from the pool
     fn select_random_nickname(&self) -> Option<String> {
-        use rand::seq::SliceRandom;
         self.nicknames_pool.choose(&mut rand::thread_rng()).cloned()
     }
 
@@ -124,9 +147,7 @@ impl NicknameChangerService {
         let map = json!({ "nick": new_nickname });
 
         match self.http.edit_member(guild_id, user_id, &map, None).await {
-            Ok(_) => {
-                Ok(())
-            }
+            Ok(_) => Ok(()),
             Err(why) => {
                 let msg = format!("Failed to change nickname for user {}: {}", user_id, why);
                 error!("{}", msg);
@@ -152,9 +173,7 @@ impl NicknameChangerService {
             .allowed_mentions(CreateAllowedMentions::new().empty_roles());
 
         match channel_id.send_message(&self.http, msg).await {
-            Ok(_) => {
-                Ok(())
-            }
+            Ok(_) => Ok(()),
             Err(why) => {
                 let msg = format!("Failed to send formatted message: {}", why);
                 error!("{}", msg);

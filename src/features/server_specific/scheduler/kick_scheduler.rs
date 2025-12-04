@@ -36,23 +36,26 @@ impl KickScheduler {
     }
 
     /// Checks and sends kick polls based on random probability
+    /// Only sends kick poll for one user per cycle at most
     async fn check_and_send_kick_polls(&self) {
         let targets_to_kick = self.service.get_targets_for_random_kick();
 
-        if !targets_to_kick.is_empty() {
-            debug!("Found {} targets for kick polls", targets_to_kick.len());
+        if targets_to_kick.is_empty() {
+            return;
         }
 
-        for target in targets_to_kick {
+        // Since get_targets_for_random_kick() now returns at most one user,
+        // we can safely process the first (and only) target
+        if let Some(target) = targets_to_kick.first() {
+            debug!("Found target for kick poll: {}", target.display_name);
+
             if let Err(e) = self.service.send_kick_poll_for_user(target.user_id).await {
                 warn!(
                     "Failed to send kick poll for {}: {}",
                     target.display_name, e
                 );
             }
-
-            // Small delay between polls
-            sleep(Duration::from_secs(2)).await;
+            // No delay needed since only one poll is sent
         }
     }
 }

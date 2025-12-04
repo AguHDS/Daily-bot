@@ -6,8 +6,10 @@ use serenity::all::{
 };
 use serenity::http::Http;
 
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use std::sync::Arc;
-use tracing::{error};
+use tracing::error;
 
 pub struct KickService {
     pub server_config: ServerConfig,
@@ -25,16 +27,38 @@ impl KickService {
     }
 
     /// Gets targets that should be considered for kicking based on random probability
+    /// Only one user will be returned at most per cycle, even if multiple users pass the probability check
     pub fn get_targets_for_random_kick(&self) -> Vec<&KickTargetUser> {
         if !self.kick_config.is_enabled() {
             return Vec::new();
         }
 
-        self.kick_config
+        // Filter users who can be kicked (not in cooldown)
+        let mut eligible_targets: Vec<&KickTargetUser> = self
+            .kick_config
             .targets
             .iter()
-            .filter(|target| target.should_kick(&self.kick_config.random_config))
-            .collect()
+            .filter(|target| target.can_be_kicked(&self.kick_config.random_config))
+            .collect();
+
+        if eligible_targets.is_empty() {
+            return Vec::new();
+        }
+
+        // Randomize the order so everyone has an equal chance of being selected first
+        let mut rng = thread_rng();
+        eligible_targets.shuffle(&mut rng);
+
+        // Evaluate each user in random order until one meets the probability
+        for target in eligible_targets {
+            if target.should_kick(&self.kick_config.random_config) {
+                // Only return ONE user at most
+                return vec![target];
+            }
+        }
+
+        // If no user met the probability, return empty
+        Vec::new()
     }
 
     pub async fn send_kick_poll_for_user(&self, user_id: u64) -> Result<String, String> {

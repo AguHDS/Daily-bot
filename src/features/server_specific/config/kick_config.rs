@@ -12,9 +12,9 @@ pub struct KickRandomConfig {
 impl Default for KickRandomConfig {
     fn default() -> Self {
         Self {
-            check_interval_minutes: 300,
+            check_interval_minutes: 360,
             kick_probability: 0.0,
-            min_minutes_between_kicks: 600,
+            min_minutes_between_kicks: 720,
         }
     }
 }
